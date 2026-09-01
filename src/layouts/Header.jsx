@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
-import { useAuthStore } from '../store/useAuthStore';
-import { LogOut, User, Settings } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { UserProfileModal } from '../components/profile/UserProfileModal';
+import React, { useState } from "react";
+import { useAuthStore } from "../store/useAuthStore";
+import { LogOut, User, Settings } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { UserProfileModal } from "../components/profile/UserProfileModal";
+import schoolLogo from "../assets/logo-mark.svg";
 
 export function Header() {
   const { user, logout } = useAuthStore();
@@ -10,15 +11,15 @@ export function Header() {
   const navigate = useNavigate();
 
   const roleBadges = {
-    school_admin: 'bg-rose-500/20 text-rose-300 border-rose-500/30',
-    secretariat: 'bg-sky-500/20 text-sky-300 border-sky-500/30',
-    supervisor: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
-    teacher: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+    school_admin: "bg-rose-500/20 text-rose-300 border-rose-500/30",
+    secretariat: "bg-sky-500/20 text-sky-300 border-sky-500/30",
+    supervisor: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+    teacher: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
   };
 
   const handleLogout = async () => {
     await logout();
-    navigate('/login');
+    navigate("/login");
   };
 
   return (
@@ -27,12 +28,20 @@ export function Header() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           {/* Brand Logo & Name */}
           <div className="flex items-center space-x-3 space-x-reverse">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-teal-500 to-emerald-400 text-slate-950 flex items-center justify-center font-bold text-xl shadow">
-              أ
+            <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center p-1.5 shadow-md shadow-teal-500/10 border border-slate-700/50">
+              <img
+                src={schoolLogo}
+                alt="شعار مدرسة أساس"
+                className="w-full h-full object-contain"
+              />
             </div>
             <div>
-              <h1 className="font-bold text-base sm:text-lg leading-none">منصة مدرسة أساس الأكاديمية</h1>
-              <p className="text-xs text-teal-400 mt-0.5">Asas School Academic Platform</p>
+              <h1 className="font-bold text-base sm:text-lg leading-none">
+                منصة مدرسة أساس الأكاديمية
+              </h1>
+              <p className="text-xs text-teal-400 mt-0.5">
+                Asas School Academic Platform
+              </p>
             </div>
           </div>
 
@@ -47,9 +56,13 @@ export function Header() {
               <User className="w-4 h-4 text-teal-400 group-hover:scale-110 transition-transform" />
               <div>
                 <span className="text-xs font-semibold text-slate-200 block">
-                  {user?.first_name ? `${user.first_name} ${user.last_name}` : user?.username}
+                  {user?.first_name
+                    ? `${user.first_name} ${user.last_name}`
+                    : user?.username}
                 </span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded border inline-block mt-0.5 ${roleBadges[user?.role] || 'bg-slate-700 text-slate-300'}`}>
+                <span
+                  className={`text-[10px] px-1.5 py-0.5 rounded border inline-block mt-0.5 ${roleBadges[user?.role] || "bg-slate-700 text-slate-300"}`}
+                >
                   {user?.role_display || user?.role}
                 </span>
               </div>

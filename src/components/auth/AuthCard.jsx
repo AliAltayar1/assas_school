@@ -1,5 +1,5 @@
 import React from 'react';
-import { School } from 'lucide-react';
+import schoolLogo from '../../assets/logo-mark.svg';
 
 export function AuthCard({ title, subtitle, children }) {
   return (
@@ -11,8 +11,8 @@ export function AuthCard({ title, subtitle, children }) {
       {/* Main Container */}
       <div className="sm:mx-auto sm:w-full sm:max-w-md relative z-10">
         <div className="flex justify-center">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-teal-500 to-emerald-400 text-slate-950 flex items-center justify-center font-bold text-2xl shadow-xl shadow-teal-500/20">
-            <School className="w-7 h-7 text-slate-950" />
+          <div className="w-16 h-16 rounded-2xl bg-white p-2 flex items-center justify-center shadow-xl shadow-teal-500/20 border border-slate-700/50">
+            <img src={schoolLogo} alt="شعار مدرسة أساس" className="w-full h-full object-contain" />
           </div>
         </div>
         <h2 className="mt-4 text-center text-2xl font-extrabold text-white tracking-tight">
