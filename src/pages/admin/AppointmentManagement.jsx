@@ -222,10 +222,12 @@ export function AppointmentManagement() {
     if (e) e.preventDefault();
     if (!targetAppointment?.id || !decisionModalType) return;
 
-    const trimmedReason = decisionReason.trim();
-    if (!trimmedReason) {
-      setDecisionModalError("سبب القرار إجباري. يرجى كتابة سبب اتخاذ القرار للمتابعة.");
-      return;
+    if (decisionModalType === "reject") {
+      const trimmedReason = decisionReason.trim();
+      if (!trimmedReason) {
+        setDecisionModalError("سبب الرفض إجباري. يرجى كتابة سبب الرفض للمتابعة.");
+        return;
+      }
     }
 
     if (targetAppointment.status !== "pending") {
@@ -239,9 +241,10 @@ export function AppointmentManagement() {
     try {
       let res;
       if (decisionModalType === "approve") {
-        res = await api.appointments.approve(targetAppointment.id, trimmedReason);
+        res = await api.appointments.approve(targetAppointment.id);
         toast.success(res?.message || "تم قبول طلب الموعد بنجاح.");
       } else {
+        const trimmedReason = decisionReason.trim();
         res = await api.appointments.reject(targetAppointment.id, trimmedReason);
         toast.success(res?.message || "تم رفض طلب الموعد بنجاح.");
       }
@@ -937,14 +940,25 @@ export function AppointmentManagement() {
                   </span>
                 </div>
 
-                <div>
-                  <span className="text-[11px] font-semibold text-slate-500 block mb-0.5">
-                    سبب القرار:
-                  </span>
-                  <p className="text-xs font-medium leading-relaxed whitespace-pre-wrap">
-                    {selectedAppointment.decision_reason || "لم يذكر سبب"}
-                  </p>
-                </div>
+                {selectedAppointment.status === "rejected" ? (
+                  <div>
+                    <span className="text-[11px] font-semibold text-slate-500 block mb-0.5">
+                      سبب الرفض:
+                    </span>
+                    <p className="text-xs font-medium leading-relaxed whitespace-pre-wrap text-rose-800">
+                      {selectedAppointment.decision_reason || "لم يذكر سبب"}
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <span className="text-[11px] font-semibold text-slate-500 block mb-0.5">
+                      حالة القرار:
+                    </span>
+                    <p className="text-xs font-medium leading-relaxed text-emerald-800">
+                      {selectedAppointment.decision_reason || "تم قبول وتأكيد طلب الموعد بنجاح"}
+                    </p>
+                  </div>
+                )}
 
                 <div className="text-[11px] text-slate-600 pt-1 flex items-center justify-between">
                   <span>صاحب القرار:</span>
@@ -1072,34 +1086,33 @@ export function AppointmentManagement() {
               </Alert>
             )}
 
-            {/* Mandatory Decision Reason Input */}
-            <div className="space-y-1.5">
-              <label
-                htmlFor="decision_reason"
-                className="block text-xs font-bold text-slate-800"
-              >
-                سبب القرار <span className="text-rose-500">* (إجباري)</span>
-              </label>
-              <textarea
-                id="decision_reason"
-                rows={3}
-                value={decisionReason}
-                onChange={(e) => {
-                  setDecisionReason(e.target.value);
-                  if (decisionModalError) setDecisionModalError(null);
-                }}
-                placeholder={
-                  decisionModalType === "approve"
-                    ? "اكتب سبب الموافقة وتوجيهات الحضور (مثال: تمت الموافقة على الحضور، يرجى مراجعة الإدارة في الموعد المحدد)."
-                    : "اكتب سبب الرفض (مثال: يرجى اختيار موعد آخر بسبب عدم توفر الإدارة في هذا التاريخ)."
-                }
-                className="w-full text-xs border border-slate-200 rounded-xl p-3 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none placeholder:text-slate-400 leading-relaxed resize-none font-medium"
-                required
-              />
-              <span className="text-[10px] text-slate-400 block">
-                ملاحظة: سبب القرار سيتم توثيقه بالـ Backend وعرضه في سجل الموعد لولي الأمر والإدارة.
-              </span>
-            </div>
+            {/* Decision Reason Input (Only for reject, confirmation for approve) */}
+            {decisionModalType === "reject" ? (
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="decision_reason"
+                  className="block text-xs font-bold text-slate-800"
+                >
+                  سبب الرفض <span className="text-rose-500">* (إجباري)</span>
+                </label>
+                <textarea
+                  id="decision_reason"
+                  rows={3}
+                  value={decisionReason}
+                  onChange={(e) => {
+                    setDecisionReason(e.target.value);
+                    if (decisionModalError) setDecisionModalError(null);
+                  }}
+                  placeholder="اكتب سبب الرفض لولي الأمر (مثال: يرجى اختيار موعد آخر بسبب عدم توفر الإدارة في هذا التاريخ)..."
+                  className="w-full text-xs border border-slate-200 rounded-xl p-3 bg-white focus:ring-2 focus:ring-rose-500 focus:outline-none placeholder:text-slate-400 leading-relaxed resize-none font-medium"
+                  required
+                />
+              </div>
+            ) : (
+              <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-950 leading-relaxed">
+                هل أنت متأكد من رغبتك في الموافقة على طلب الموعد المحدد؟ سيتم تغيير حالة الطلب مباشرة إلى <strong>مقبول</strong> وتوثيق القرار باسمك.
+              </div>
+            )}
 
             {/* Modal Footer Buttons */}
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">

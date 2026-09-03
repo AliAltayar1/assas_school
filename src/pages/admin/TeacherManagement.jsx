@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { api } from "../../api";
 import { useAuthStore } from "../../store/useAuthStore";
 import { Modal } from "../../components/ui/Modal";
@@ -30,6 +30,11 @@ export function TeacherManagement() {
   const [teachers, setTeachers] = useState([]);
   const [gradeSubjects, setGradeSubjects] = useState([]);
   const [sections, setSections] = useState([]);
+  const [gradeLevels, setGradeLevels] = useState([]);
+
+  // Selected grade level for filtering in modals
+  const [selectedGradeForCreate, setSelectedGradeForCreate] = useState("");
+  const [selectedGradeForEdit, setSelectedGradeForEdit] = useState("");
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -99,13 +104,13 @@ export function TeacherManagement() {
         setHasPrevious(Boolean(previous));
       } catch (err) {
         setError(
-          parseApiError(err, "حدث خطأ أثناء تحميل التكليفات الأكاديمية.")
+          parseApiError(err, "حدث خطأ أثناء تحميل التكليفات الأكاديمية."),
         );
       } finally {
         setIsLoading(false);
       }
     },
-    [currentPage, searchQuery, selectedTeacherFilter]
+    [currentPage, searchQuery, selectedTeacherFilter],
   );
 
   // Helper label extractors for dropdowns
@@ -168,16 +173,57 @@ export function TeacherManagement() {
     }
   };
 
+  // Helper to check if an assignment end date has expired
+  const isEndDateExpired = (dateStr) => {
+    if (!dateStr) return false;
+    try {
+      const cleanDate = dateStr.includes("T") ? dateStr.split("T")[0] : dateStr;
+      const d = new Date();
+      const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
+        return cleanDate < todayStr;
+      }
+      const target = new Date(dateStr);
+      target.setHours(0, 0, 0, 0);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return target < today;
+    } catch {
+      return false;
+    }
+  };
+
+  // Helper to extract grade level ID
+  const getGradeLevelId = useCallback((item) => {
+    if (!item) return "";
+    if (typeof item.grade_level === "object" && item.grade_level !== null) {
+      return item.grade_level.id || "";
+    }
+    return item.grade_level || item.grade_level_id || "";
+  }, []);
+
+  // Helper to extract grade level Name
+  const getGradeLevelName = useCallback((item) => {
+    if (!item) return "";
+    if (typeof item.grade_level === "object" && item.grade_level !== null) {
+      return item.grade_level.name || "";
+    }
+    return item.grade_level_display || item.grade_level_name || "";
+  }, []);
+
   // Fetch Metadata for Select Dropdowns
   const fetchMetadata = useCallback(async () => {
     try {
-      const [usersData, gsData, secData] = await Promise.all([
+      const [usersData, gsData, secData, glData] = await Promise.all([
         api.users.getUsers({ role: "teacher" }).catch(() => null),
         api.academics?.getGradeSubjects
           ? api.academics.getGradeSubjects().catch(() => null)
           : null,
         api.academics?.getSections
           ? api.academics.getSections().catch(() => null)
+          : null,
+        api.academics?.getGradeLevels
+          ? api.academics.getGradeLevels().catch(() => null)
           : null,
       ]);
 
@@ -196,8 +242,296 @@ export function TeacherManagement() {
       if (secData) {
         setSections(extractPaginatedList(secData).results || []);
       }
+      if (glData) {
+        setGradeLevels(extractPaginatedList(glData).results || []);
+      }
     } catch (_) {}
   }, []);
+
+  // Unified grade levels list (combining API gradeLevels + derived from gradeSubjects & sections)
+  const derivedGradeLevels = useMemo(() => {
+    const map = new Map();
+    if (gradeLevels && gradeLevels.length > 0) {
+      gradeLevels.forEach((gl) => {
+        if (gl.id) map.set(gl.id, gl);
+      });
+    }
+    // Fallback if gradeLevels list empty
+    gradeSubjects.forEach((gs) => {
+      const id = getGradeLevelId(gs);
+      const name = getGradeLevelName(gs);
+      if (id && !map.has(id)) {
+        map.set(id, { id, name: name || `صف (${id.slice(0, 8)})` });
+      }
+    });
+    sections.forEach((sec) => {
+      const id = getGradeLevelId(sec);
+      const name = getGradeLevelName(sec);
+      if (id && !map.has(id)) {
+        map.set(id, { id, name: name || `صف (${id.slice(0, 8)})` });
+      }
+    });
+
+    const list = Array.from(map.values());
+    list.sort((a, b) => {
+      if (a.order !== undefined && b.order !== undefined) {
+        return (a.order ?? 999) - (b.order ?? 999);
+      }
+      return (a.name || "").localeCompare(b.name || "", "ar");
+    });
+    return list;
+  }, [
+    gradeLevels,
+    gradeSubjects,
+    sections,
+    getGradeLevelId,
+    getGradeLevelName,
+  ]);
+
+  // Check if an item (section or gradeSubject) belongs to targetGradeId
+  const matchesGradeLevel = useCallback(
+    (item, targetGradeId) => {
+      if (!targetGradeId) return true;
+      if (!item) return false;
+      const itemId = getGradeLevelId(item);
+      if (itemId && itemId === targetGradeId) return true;
+
+      const targetGl = derivedGradeLevels.find((gl) => gl.id === targetGradeId);
+      if (targetGl && targetGl.name) {
+        const itemName = getGradeLevelName(item);
+        if (
+          itemName &&
+          itemName.trim().toLowerCase() === targetGl.name.trim().toLowerCase()
+        ) {
+          return true;
+        }
+      }
+      return false;
+    },
+    [derivedGradeLevels, getGradeLevelId, getGradeLevelName],
+  );
+
+  // Active grade level in Create modal (explicit choice or derived from selected grade_subject)
+  const activeGradeForCreate = useMemo(() => {
+    if (selectedGradeForCreate) return selectedGradeForCreate;
+    if (assignmentForm.grade_subject) {
+      const gs = gradeSubjects.find(
+        (g) => g.id === assignmentForm.grade_subject,
+      );
+      if (gs) return getGradeLevelId(gs);
+    }
+    return "";
+  }, [
+    selectedGradeForCreate,
+    assignmentForm.grade_subject,
+    gradeSubjects,
+    getGradeLevelId,
+  ]);
+
+  const activeGradeNameForCreate = useMemo(() => {
+    if (!activeGradeForCreate) return "";
+    const gl = derivedGradeLevels.find((g) => g.id === activeGradeForCreate);
+    if (gl) return gl.name || gl.display_name || "";
+    const gs = gradeSubjects.find((g) => g.id === assignmentForm.grade_subject);
+    return gs ? getGradeLevelName(gs) : "";
+  }, [
+    activeGradeForCreate,
+    derivedGradeLevels,
+    assignmentForm.grade_subject,
+    gradeSubjects,
+    getGradeLevelName,
+  ]);
+
+  const filteredSectionsForCreate = useMemo(() => {
+    if (!activeGradeForCreate) return sections;
+    return sections.filter((sec) =>
+      matchesGradeLevel(sec, activeGradeForCreate),
+    );
+  }, [sections, activeGradeForCreate, matchesGradeLevel]);
+
+  const filteredGradeSubjectsForCreate = useMemo(() => {
+    if (!selectedGradeForCreate) return gradeSubjects;
+    return gradeSubjects.filter((gs) =>
+      matchesGradeLevel(gs, selectedGradeForCreate),
+    );
+  }, [gradeSubjects, selectedGradeForCreate, matchesGradeLevel]);
+
+  const handleGradeChangeForCreate = (gradeId) => {
+    setSelectedGradeForCreate(gradeId);
+
+    let updatedSection = assignmentForm.section;
+    let updatedGradeSubject = assignmentForm.grade_subject;
+
+    if (gradeId) {
+      if (assignmentForm.section) {
+        const curSec = sections.find((s) => s.id === assignmentForm.section);
+        if (curSec && !matchesGradeLevel(curSec, gradeId)) {
+          updatedSection = "";
+        }
+      }
+      if (assignmentForm.grade_subject) {
+        const curGs = gradeSubjects.find(
+          (g) => g.id === assignmentForm.grade_subject,
+        );
+        if (curGs && !matchesGradeLevel(curGs, gradeId)) {
+          updatedGradeSubject = "";
+        }
+      }
+    }
+
+    setAssignmentForm((prev) => ({
+      ...prev,
+      section: updatedSection,
+      grade_subject: updatedGradeSubject,
+    }));
+  };
+
+  const handleGradeSubjectChangeForCreate = (value) => {
+    if (value === "__manual__") {
+      setUseManualUuid(true);
+      setAssignmentForm((prev) => ({ ...prev, grade_subject: "" }));
+      return;
+    }
+
+    const selectedGs = gradeSubjects.find((g) => g.id === value);
+    const gsGradeId = selectedGs ? getGradeLevelId(selectedGs) : "";
+
+    if (
+      gsGradeId &&
+      (!selectedGradeForCreate || selectedGradeForCreate !== gsGradeId)
+    ) {
+      setSelectedGradeForCreate(gsGradeId);
+    }
+
+    let updatedSection = assignmentForm.section;
+    if (gsGradeId && assignmentForm.section) {
+      const curSec = sections.find((s) => s.id === assignmentForm.section);
+      if (curSec && !matchesGradeLevel(curSec, gsGradeId)) {
+        updatedSection = "";
+      }
+    }
+
+    setAssignmentForm((prev) => ({
+      ...prev,
+      grade_subject: value,
+      section: updatedSection,
+    }));
+  };
+
+  // Active grade level in Edit modal
+  const activeGradeForEdit = useMemo(() => {
+    if (selectedGradeForEdit) return selectedGradeForEdit;
+    if (editAssignmentForm.grade_subject) {
+      const gs = gradeSubjects.find(
+        (g) => g.id === editAssignmentForm.grade_subject,
+      );
+      if (gs) return getGradeLevelId(gs);
+    }
+    if (editAssignmentForm.section) {
+      const sec = sections.find((s) => s.id === editAssignmentForm.section);
+      if (sec) return getGradeLevelId(sec);
+    }
+    return "";
+  }, [
+    selectedGradeForEdit,
+    editAssignmentForm.grade_subject,
+    editAssignmentForm.section,
+    gradeSubjects,
+    sections,
+    getGradeLevelId,
+  ]);
+
+  const activeGradeNameForEdit = useMemo(() => {
+    if (!activeGradeForEdit) return "";
+    const gl = derivedGradeLevels.find((g) => g.id === activeGradeForEdit);
+    if (gl) return gl.name || gl.display_name || "";
+    const gs = gradeSubjects.find(
+      (g) => g.id === editAssignmentForm.grade_subject,
+    );
+    return gs ? getGradeLevelName(gs) : "";
+  }, [
+    activeGradeForEdit,
+    derivedGradeLevels,
+    editAssignmentForm.grade_subject,
+    gradeSubjects,
+    getGradeLevelName,
+  ]);
+
+  const filteredSectionsForEdit = useMemo(() => {
+    if (!activeGradeForEdit) return sections;
+    return sections.filter((sec) => matchesGradeLevel(sec, activeGradeForEdit));
+  }, [sections, activeGradeForEdit, matchesGradeLevel]);
+
+  const filteredGradeSubjectsForEdit = useMemo(() => {
+    if (!selectedGradeForEdit) return gradeSubjects;
+    return gradeSubjects.filter((gs) =>
+      matchesGradeLevel(gs, selectedGradeForEdit),
+    );
+  }, [gradeSubjects, selectedGradeForEdit, matchesGradeLevel]);
+
+  const handleGradeChangeForEdit = (gradeId) => {
+    setSelectedGradeForEdit(gradeId);
+
+    let updatedSection = editAssignmentForm.section;
+    let updatedGradeSubject = editAssignmentForm.grade_subject;
+
+    if (gradeId) {
+      if (editAssignmentForm.section) {
+        const curSec = sections.find(
+          (s) => s.id === editAssignmentForm.section,
+        );
+        if (curSec && !matchesGradeLevel(curSec, gradeId)) {
+          updatedSection = "";
+        }
+      }
+      if (editAssignmentForm.grade_subject) {
+        const curGs = gradeSubjects.find(
+          (g) => g.id === editAssignmentForm.grade_subject,
+        );
+        if (curGs && !matchesGradeLevel(curGs, gradeId)) {
+          updatedGradeSubject = "";
+        }
+      }
+    }
+
+    setEditAssignmentForm((prev) => ({
+      ...prev,
+      section: updatedSection,
+      grade_subject: updatedGradeSubject,
+    }));
+  };
+
+  const handleGradeSubjectChangeForEdit = (value) => {
+    if (value === "__manual__") {
+      setUseManualUuid(true);
+      setEditAssignmentForm((prev) => ({ ...prev, grade_subject: "" }));
+      return;
+    }
+
+    const selectedGs = gradeSubjects.find((g) => g.id === value);
+    const gsGradeId = selectedGs ? getGradeLevelId(selectedGs) : "";
+
+    if (
+      gsGradeId &&
+      (!selectedGradeForEdit || selectedGradeForEdit !== gsGradeId)
+    ) {
+      setSelectedGradeForEdit(gsGradeId);
+    }
+
+    let updatedSection = editAssignmentForm.section;
+    if (gsGradeId && editAssignmentForm.section) {
+      const curSec = sections.find((s) => s.id === editAssignmentForm.section);
+      if (curSec && !matchesGradeLevel(curSec, gsGradeId)) {
+        updatedSection = "";
+      }
+    }
+
+    setEditAssignmentForm((prev) => ({
+      ...prev,
+      grade_subject: value,
+      section: updatedSection,
+    }));
+  };
 
   useEffect(() => {
     fetchAssignments(currentPage);
@@ -232,7 +566,9 @@ export function TeacherManagement() {
       !assignmentForm.section ||
       !assignmentForm.start_date
     ) {
-      setModalError("يرجى اختيار المعلم والمادة المقررة والشعبة وتاريخ البداية");
+      setModalError(
+        "يرجى اختيار المعلم والمادة المقررة والشعبة وتاريخ البداية",
+      );
       return;
     }
 
@@ -307,7 +643,7 @@ export function TeacherManagement() {
       } else {
         const res = await api.teachingAssignments.endAssignment(
           selectedAssignment.id,
-          endDateInput
+          endDateInput,
         );
         toast.success(res?.detail || "تم إنهاء تكليف المعلم بنجاح.");
       }
@@ -322,10 +658,11 @@ export function TeacherManagement() {
 
   const handleOpenCreate = () => {
     setModalError(null);
+    setSelectedGradeForCreate("");
     setAssignmentForm({
       teacher: teachers[0]?.id || "",
-      grade_subject: gradeSubjects[0]?.id || "",
-      section: sections[0]?.id || "",
+      grade_subject: "",
+      section: "",
       start_date: new Date().toISOString().split("T")[0],
       end_date: "",
     });
@@ -335,6 +672,14 @@ export function TeacherManagement() {
   const handleOpenEdit = (assignment) => {
     setSelectedAssignment(assignment);
     setModalError(null);
+    const gs = gradeSubjects.find((g) => g.id === assignment.grade_subject);
+    const sec = sections.find((s) => s.id === assignment.section);
+    const gradeId =
+      getGradeLevelId(assignment) ||
+      (gs ? getGradeLevelId(gs) : "") ||
+      (sec ? getGradeLevelId(sec) : "");
+
+    setSelectedGradeForEdit(gradeId);
     setEditAssignmentForm({
       teacher: assignment.teacher || "",
       grade_subject: assignment.grade_subject || "",
@@ -349,7 +694,7 @@ export function TeacherManagement() {
     setSelectedAssignment(assignment);
     setModalError(null);
     setEndDateInput(
-      assignment.end_date || new Date().toISOString().split("T")[0]
+      assignment.end_date || new Date().toISOString().split("T")[0],
     );
     setIsEndAssignmentModalOpen(true);
   };
@@ -373,7 +718,8 @@ export function TeacherManagement() {
             )}
           </div>
           <p className="text-xs text-slate-500 pr-1">
-            إسناد المواد المقررة والشُّعَب الدراسية للمعلمين وتتبع التواريخ والبيانات الأكاديمية
+            إسناد المواد المقررة والشُّعَب الدراسية للمعلمين وتتبع التواريخ
+            والبيانات الأكاديمية
           </p>
         </div>
 
@@ -389,31 +735,6 @@ export function TeacherManagement() {
             <RefreshCw
               className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`}
             />
-          </Button>
-
-          <Button
-            variant="outline"
-            onClick={() => {
-              const active =
-                assignments.find((a) => !a.end_date) || assignments[0];
-              if (active) {
-                handleOpenEnd(active);
-              } else {
-                toast.info("لا توجد تكليفات متاحة لإنهائها حالياً.");
-              }
-            }}
-            className="gap-1.5 border-amber-300 text-amber-800 bg-amber-50/80 hover:bg-amber-100 text-xs font-semibold h-9 px-3"
-          >
-            <StopCircle className="w-4 h-4 text-amber-600" />
-            <span>إنهاء تكليف</span>
-          </Button>
-
-          <Button
-            onClick={handleOpenCreate}
-            className="gap-1.5 text-xs font-bold h-9 px-3.5 shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span>إسناد تكليف جديد</span>
           </Button>
         </div>
       </div>
@@ -486,9 +807,13 @@ export function TeacherManagement() {
                 لا توجد تكليفات أكاديمية مسجلة حالياً
               </p>
               <p className="text-xs text-slate-500 leading-relaxed">
-                قم بربط المعلمين بالمواد المقررة والشعب الدراسية لتنظيم جدول الحصص والخطط الدراسية.
+                قم بربط المعلمين بالمواد المقررة والشعب الدراسية لتنظيم جدول
+                الحصص والخطط الدراسية.
               </p>
-              <Button onClick={handleOpenCreate} className="gap-2 mt-2 font-bold shadow-sm">
+              <Button
+                onClick={handleOpenCreate}
+                className="gap-2 mt-2 font-bold shadow-sm"
+              >
                 <Plus className="w-4 h-4" />
                 <span>إسناد تكليف جديد للمعلم الآن</span>
               </Button>
@@ -497,18 +822,20 @@ export function TeacherManagement() {
         ) : (
           <>
             {/* 1. Desktop & Tablet View Table (Hidden on small mobile) */}
-            <div className="hidden lg:block overflow-x-auto">
-              <table className="w-full text-xs text-right min-w-[800px]">
-                <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-700 font-bold">
+            <div className="hidden lg:block overflow-x-auto w-full">
+              <table className="w-full text-xs text-right min-w-[1100px]">
+                <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-700 font-bold whitespace-nowrap">
                   <tr>
-                    <th className="p-3.5">المعلم المكلف</th>
-                    <th className="p-3.5">المادة المقررة</th>
-                    <th className="p-3.5">الصف والشعبة</th>
-                    <th className="p-3.5">السنة الدراسية</th>
-                    <th className="p-3.5">فترة التكليف</th>
-                    <th className="p-3.5">الحالة</th>
-                    <th className="p-3.5">تاريخ التحديث</th>
-                    <th className="p-3.5 text-center">الإجراءات</th>
+                    <th className="p-3.5 whitespace-nowrap">المعلم المكلف</th>
+                    <th className="p-3.5 whitespace-nowrap">المادة المقررة</th>
+                    <th className="p-3.5 whitespace-nowrap">الصف والشعبة</th>
+                    <th className="p-3.5 whitespace-nowrap">السنة الدراسية</th>
+                    <th className="p-3.5 whitespace-nowrap">فترة التكليف</th>
+                    <th className="p-3.5 whitespace-nowrap">الحالة</th>
+                    <th className="p-3.5 whitespace-nowrap">تاريخ التحديث</th>
+                    <th className="p-3.5 text-center whitespace-nowrap">
+                      الإجراءات
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -518,16 +845,18 @@ export function TeacherManagement() {
                       className="hover:bg-slate-50/80 transition-colors"
                     >
                       {/* Teacher */}
-                      <td className="p-3.5 font-bold text-slate-900">
-                        <div className="flex items-center gap-2">
+                      <td className="p-3.5 font-bold text-slate-900 whitespace-nowrap">
+                        <div className="flex items-center gap-2 whitespace-nowrap">
                           <div className="w-7 h-7 rounded-full bg-teal-50 text-teal-700 flex items-center justify-center font-bold text-xs border border-teal-200 shrink-0">
                             <UserCheck className="w-3.5 h-3.5" />
                           </div>
-                          <div>
-                            <div>{row.teacher_display || row.teacher}</div>
+                          <div className="whitespace-nowrap">
+                            <div className="whitespace-nowrap">
+                              {row.teacher_display || row.teacher}
+                            </div>
                             {row.teacher &&
                               row.teacher !== row.teacher_display && (
-                                <div className="text-[10px] text-slate-400 font-mono">
+                                <div className="text-[10px] text-slate-400 font-mono whitespace-nowrap">
                                   {row.teacher.slice(0, 8)}...
                                 </div>
                               )}
@@ -536,18 +865,20 @@ export function TeacherManagement() {
                       </td>
 
                       {/* Subject */}
-                      <td className="p-3.5 text-slate-800 font-semibold">
-                        <div className="flex items-center gap-1.5">
+                      <td className="p-3.5 text-slate-800 font-semibold whitespace-nowrap">
+                        <div className="flex items-center gap-1.5 whitespace-nowrap">
                           <GraduationCap className="w-4 h-4 text-slate-400 shrink-0" />
-                          <span>{row.subject_display || row.grade_subject}</span>
+                          <span className="whitespace-nowrap">
+                            {row.subject_display || row.grade_subject}
+                          </span>
                         </div>
                       </td>
 
                       {/* Grade & Section */}
-                      <td className="p-3.5 text-slate-700 font-medium">
-                        <div className="flex items-center gap-1.5">
+                      <td className="p-3.5 text-slate-700 font-medium whitespace-nowrap">
+                        <div className="flex items-center gap-1.5 whitespace-nowrap">
                           <Layers className="w-4 h-4 text-slate-400 shrink-0" />
-                          <span>
+                          <span className="whitespace-nowrap">
                             {row.grade_level_display
                               ? `${row.grade_level_display} - `
                               : ""}
@@ -557,31 +888,37 @@ export function TeacherManagement() {
                       </td>
 
                       {/* Academic Year */}
-                      <td className="p-3.5">
+                      <td className="p-3.5 whitespace-nowrap">
                         {row.academic_year_display ? (
-                          <span className="bg-slate-100 text-slate-700 text-[11px] px-2.5 py-1 rounded-md border border-slate-200 font-medium">
+                          <span className="bg-slate-100 text-slate-700 text-[11px] px-2.5 py-1 rounded-md border border-slate-200 font-medium whitespace-nowrap inline-block">
                             {row.academic_year_display}
                           </span>
                         ) : (
-                          <span className="text-slate-400 text-xs">-</span>
+                          <span className="text-slate-400 text-xs whitespace-nowrap">
+                            -
+                          </span>
                         )}
                       </td>
 
                       {/* Start / End Dates */}
-                      <td className="p-3.5 text-slate-600">
-                        <div className="flex flex-col gap-0.5 text-[11px]">
-                          <span className="flex items-center gap-1">
+                      <td className="p-3.5 text-slate-600 whitespace-nowrap">
+                        <div className="flex flex-col gap-1 text-[11px] whitespace-nowrap">
+                          <span className="flex items-center gap-1 whitespace-nowrap">
                             <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
-                            <span className="text-slate-500">من:</span>
-                            <span className="font-mono font-medium">
+                            <span className="text-slate-500 whitespace-nowrap">
+                              من:
+                            </span>
+                            <span className="font-mono font-medium whitespace-nowrap">
                               {row.start_date}
                             </span>
                           </span>
                           {row.end_date && (
-                            <span className="flex items-center gap-1">
+                            <span className="flex items-center gap-1 whitespace-nowrap">
                               <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
-                              <span className="text-slate-500">إلى:</span>
-                              <span className="font-mono font-medium text-amber-700">
+                              <span className="text-slate-500 whitespace-nowrap">
+                                إلى:
+                              </span>
+                              <span className="font-mono font-medium text-amber-700 whitespace-nowrap">
                                 {row.end_date}
                               </span>
                             </span>
@@ -590,28 +927,41 @@ export function TeacherManagement() {
                       </td>
 
                       {/* Status */}
-                      <td className="p-3.5">
+                      <td className="p-3.5 whitespace-nowrap">
                         {row.end_date ? (
-                          <span className="text-[11px] text-amber-700 bg-amber-50 px-2.5 py-1 rounded-md border border-amber-200 font-semibold inline-flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                            <span>منتهي ({row.end_date})</span>
-                          </span>
+                          isEndDateExpired(row.end_date) ? (
+                            <span className="text-[11px] text-rose-700 bg-rose-50 px-2.5 py-1 rounded-md border border-rose-200 font-semibold inline-flex items-center gap-1.5 whitespace-nowrap">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0"></span>
+                              <span className="whitespace-nowrap">
+                                منتهي بتاريخ: ({row.end_date})
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-amber-700 bg-amber-50 px-2.5 py-1 rounded-md border border-amber-200 font-semibold inline-flex items-center gap-1.5 whitespace-nowrap">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
+                              <span className="whitespace-nowrap">
+                                ينتهي بتاريخ: ({row.end_date})
+                              </span>
+                            </span>
+                          )
                         ) : (
-                          <span className="text-[11px] text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200 font-semibold inline-flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                            <span>نشط حالياً</span>
+                          <span className="text-[11px] text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200 font-semibold inline-flex items-center gap-1.5 whitespace-nowrap">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+                            <span className="whitespace-nowrap">
+                              نشط حالياً
+                            </span>
                           </span>
                         )}
                       </td>
 
                       {/* Timestamps */}
-                      <td className="p-3.5 text-slate-500 text-[11px]">
+                      <td className="p-3.5 text-slate-500 text-[11px] whitespace-nowrap">
                         <div
-                          className="flex items-center gap-1"
+                          className="flex items-center gap-1.5 whitespace-nowrap"
                           title={`تاريخ الإنشاء: ${row.created_at || ""}`}
                         >
                           <Clock className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span>
+                          <span className="whitespace-nowrap">
                             {formatDateTime(row.updated_at || row.created_at) ||
                               "-"}
                           </span>
@@ -619,31 +969,29 @@ export function TeacherManagement() {
                       </td>
 
                       {/* Actions */}
-                      <td className="p-3.5 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
+                      <td className="p-3.5 text-center whitespace-nowrap">
+                        <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
                           <button
                             onClick={() => handleOpenEdit(row)}
-                            className="flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-2.5 py-1 rounded-lg transition-colors"
+                            className="flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap shrink-0"
                             title="تعديل بيانات التكليف"
                           >
-                            <Edit2 className="w-3.5 h-3.5" />
-                            <span>تعديل</span>
+                            <Edit2 className="w-3.5 h-3.5 shrink-0" />
+                            <span className="whitespace-nowrap">تعديل</span>
                           </button>
 
                           <button
                             onClick={() => handleOpenEnd(row)}
-                            className={`flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg transition-colors border ${
+                            className={`flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg transition-colors border whitespace-nowrap shrink-0 ${
                               row.end_date
                                 ? "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300"
                                 : "bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200"
                             }`}
                             title="إنهاء التكليف وتحديد تاريخ النهاية"
                           >
-                            <StopCircle className="w-3.5 h-3.5 text-amber-600" />
-                            <span>
-                              {row.end_date
-                                ? "تعديل النهاية"
-                                : "إنهاء"}
+                            <StopCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            <span className="whitespace-nowrap">
+                              {row.end_date ? "تعديل النهاية" : "إنهاء"}
                             </span>
                           </button>
                         </div>
@@ -680,10 +1028,17 @@ export function TeacherManagement() {
                     {/* Status Badge */}
                     <div>
                       {row.end_date ? (
-                        <span className="text-[11px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 font-semibold inline-flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                          <span>منتهي</span>
-                        </span>
+                        isEndDateExpired(row.end_date) ? (
+                          <span className="text-[11px] text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200 font-semibold inline-flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                            <span>منتهي</span>
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 font-semibold inline-flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                            <span>ينتهي</span>
+                          </span>
+                        )
                       ) : (
                         <span className="text-[11px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 font-semibold inline-flex items-center gap-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -696,7 +1051,9 @@ export function TeacherManagement() {
                   {/* Card Details Grid */}
                   <div className="grid grid-cols-2 gap-2 bg-slate-50/80 p-3 rounded-xl border border-slate-100 text-xs">
                     <div>
-                      <span className="text-slate-400 text-[10px] block">الصف والشعبة:</span>
+                      <span className="text-slate-400 text-[10px] block">
+                        الصف والشعبة:
+                      </span>
                       <span className="font-semibold text-slate-800">
                         {row.grade_level_display
                           ? `${row.grade_level_display} - `
@@ -706,19 +1063,27 @@ export function TeacherManagement() {
                     </div>
 
                     <div>
-                      <span className="text-slate-400 text-[10px] block">السنة الدراسية:</span>
+                      <span className="text-slate-400 text-[10px] block">
+                        السنة الدراسية:
+                      </span>
                       <span className="font-semibold text-slate-800">
                         {row.academic_year_display || "-"}
                       </span>
                     </div>
 
                     <div>
-                      <span className="text-slate-400 text-[10px] block">تاريخ البداية:</span>
-                      <span className="font-mono text-slate-700">{row.start_date}</span>
+                      <span className="text-slate-400 text-[10px] block">
+                        تاريخ البداية:
+                      </span>
+                      <span className="font-mono text-slate-700">
+                        {row.start_date}
+                      </span>
                     </div>
 
                     <div>
-                      <span className="text-slate-400 text-[10px] block">تاريخ النهاية:</span>
+                      <span className="text-slate-400 text-[10px] block">
+                        تاريخ النهاية:
+                      </span>
                       <span className="font-mono text-slate-700">
                         {row.end_date || "مستمر"}
                       </span>
@@ -744,7 +1109,9 @@ export function TeacherManagement() {
                       }`}
                     >
                       <StopCircle className="w-3.5 h-3.5 text-amber-600" />
-                      <span>{row.end_date ? "تعديل النهاية" : "إنهاء التكليف"}</span>
+                      <span>
+                        {row.end_date ? "تعديل النهاية" : "إنهاء التكليف"}
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -765,11 +1132,11 @@ export function TeacherManagement() {
       </div>
 
       {/* Modal: Create Assignment - Fully Responsive Form */}
-      {/* Modal: Create Assignment - Fully Responsive Form */}
       <Modal
         isOpen={isAssignmentModalOpen}
         onClose={() => setIsAssignmentModalOpen(false)}
         title="إسناد تكليف أكاديمي جديد للمعلم (POST /assignments/)"
+        maxWidth="max-w-xl sm:max-w-2xl"
       >
         <form
           onSubmit={handleCreateAssignment}
@@ -812,23 +1179,26 @@ export function TeacherManagement() {
                 <span>نمط الإدخال اليدوي لمعرّفات النظام (UUIDs)</span>
               </div>
               <p className="text-slate-600 text-[11px] leading-relaxed">
-                يرجى إدخال معرّفات UUID المباشرة للمعلم والمادة المقررة والشعبة، أو الاستعانة بقوائم التعبئة السريعة أسفل كل حقل.
+                يرجى إدخال معرّفات UUID المباشرة للمعلم والمادة المقررة والشعبة،
+                أو الاستعانة بقوائم التعبئة السريعة أسفل كل حقل.
               </p>
             </div>
           )}
 
           {/* 1. Teacher Select */}
           <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs font-semibold text-slate-700">
+            <div className="flex items-center justify-between gap-2 mb-1.5 whitespace-nowrap">
+              <label className="block text-xs font-semibold text-slate-700 whitespace-nowrap">
                 المعلم المكلف (Teacher) <span className="text-red-500">*</span>
               </label>
               <button
                 type="button"
                 onClick={() => setUseManualUuid(!useManualUuid)}
-                className="text-[11px] text-teal-600 hover:underline font-semibold"
+                className="text-[11px] text-teal-600 hover:underline font-semibold whitespace-nowrap shrink-0"
               >
-                {useManualUuid ? "التبديل للقائمة المنسدلة" : "إدخال UUID يدوياً"}
+                {useManualUuid
+                  ? "التبديل للقائمة المنسدلة"
+                  : "إدخال UUID يدوياً"}
               </button>
             </div>
 
@@ -849,7 +1219,9 @@ export function TeacherManagement() {
                 />
                 {teachers.length > 0 && (
                   <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                    <span className="shrink-0 text-slate-400">تعبئة سريعة:</span>
+                    <span className="shrink-0 text-slate-400">
+                      تعبئة سريعة:
+                    </span>
                     <select
                       value=""
                       onChange={(e) => {
@@ -862,7 +1234,9 @@ export function TeacherManagement() {
                       }}
                       className="flex-1 px-2 py-1 border border-slate-200 rounded-lg text-[11px] bg-white text-slate-700 focus:outline-none"
                     >
-                      <option value="">-- اختر معلماً لنسخ معرّفه تلقائياً --</option>
+                      <option value="">
+                        -- اختر معلماً لنسخ معرّفه تلقائياً --
+                      </option>
                       {teachers.map((t) => (
                         <option key={t.id} value={t.id}>
                           {getTeacherLabel(t)} ({t.id})
@@ -892,30 +1266,77 @@ export function TeacherManagement() {
                 <option value="">-- اختر المعلم من القائمة --</option>
                 {teachers.map((t) => (
                   <option key={t.id} value={t.id}>
-                    {getTeacherLabel(t)} — [{t.id ? `${String(t.id).slice(0, 8)}...` : ""}]
+                    {getTeacherLabel(t)} — [
+                    {t.id ? `${String(t.id).slice(0, 8)}...` : ""}]
                   </option>
                 ))}
                 {teachers.length === 0 && (
-                  <option value="" disabled>-- جاري تحميل قائمة المعلمين أو لا يوجد معلمين مسجلين --</option>
+                  <option value="" disabled>
+                    -- جاري تحميل قائمة المعلمين أو لا يوجد معلمين مسجلين --
+                  </option>
                 )}
-                <option value="__manual__" className="text-teal-600 font-bold bg-teal-50">
+                <option
+                  value="__manual__"
+                  className="text-teal-600 font-bold bg-teal-50"
+                >
                   ➕ إدخال معرّف المعلم (UUID) يدوياً...
                 </option>
               </select>
             )}
           </div>
 
-          {/* 2. Grade Subject & Section Select - Responsive Stack */}
+          {/* 2. Class (Grade Level) Selector */}
+          <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-200/80 space-y-2">
+            <div className="flex items-center justify-between gap-2 whitespace-nowrap">
+              <label className="flex items-center gap-1.5 text-xs font-bold text-slate-800 whitespace-nowrap">
+                <GraduationCap className="w-4 h-4 text-teal-600 shrink-0" />
+                <span className="whitespace-nowrap">
+                  الصف الدراسي (Class / Grade Level)
+                </span>
+              </label>
+              {selectedGradeForCreate && (
+                <button
+                  type="button"
+                  onClick={() => handleGradeChangeForCreate("")}
+                  className="text-[11px] text-teal-600 hover:text-teal-800 hover:underline font-medium whitespace-nowrap shrink-0"
+                >
+                  عرض جميع الصفوف
+                </button>
+              )}
+            </div>
+            <select
+              value={selectedGradeForCreate}
+              onChange={(e) => handleGradeChangeForCreate(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white text-slate-800 focus:ring-2 focus:ring-teal-500 focus:outline-none font-medium shadow-sm"
+            >
+              <option value="">
+                -- اختر الصف لتصفية المواد والشُعب (مثال: الصف السابع) --
+              </option>
+              {derivedGradeLevels.map((gl) => (
+                <option key={gl.id} value={gl.id}>
+                  {gl.name || gl.display_name || gl.title}
+                </option>
+              ))}
+            </select>
+            {activeGradeNameForCreate && (
+              <p className="text-[11px] text-teal-700 font-medium">
+                ✓ سيتم عرض شُعب ومواد ({activeGradeNameForCreate}) فقط
+              </p>
+            )}
+          </div>
+
+          {/* 3. Grade Subject & Section Select - Responsive Stack */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-semibold text-slate-700">
-                  المادة المقررة (Grade Subject) <span className="text-red-500">*</span>
+              <div className="flex items-center justify-between gap-2 mb-1.5 whitespace-nowrap">
+                <label className="block text-xs font-semibold text-slate-700 whitespace-nowrap">
+                  المادة المقررة (Grade Subject){" "}
+                  <span className="text-red-500">*</span>
                 </label>
                 <button
                   type="button"
                   onClick={() => setUseManualUuid(!useManualUuid)}
-                  className="text-[11px] text-teal-600 hover:underline font-semibold"
+                  className="text-[11px] text-teal-600 hover:underline font-semibold whitespace-nowrap shrink-0"
                 >
                   {useManualUuid ? "القائمة" : "يدوياً"}
                 </button>
@@ -936,23 +1357,20 @@ export function TeacherManagement() {
                     className="w-full px-3 py-2 border rounded-xl text-xs font-mono focus:ring-2 focus:ring-teal-500 focus:outline-none bg-slate-50/50 hover:bg-white focus:bg-white"
                     required
                   />
-                  {gradeSubjects.length > 0 && (
+                  {filteredGradeSubjectsForCreate.length > 0 && (
                     <div className="flex items-center gap-1 text-[10px] text-slate-500">
                       <span className="shrink-0 text-slate-400">تعبئة:</span>
                       <select
                         value=""
                         onChange={(e) => {
                           if (e.target.value) {
-                            setAssignmentForm({
-                              ...assignmentForm,
-                              grade_subject: e.target.value,
-                            });
+                            handleGradeSubjectChangeForCreate(e.target.value);
                           }
                         }}
                         className="flex-1 px-1.5 py-0.5 border border-slate-200 rounded text-[10px] bg-white text-slate-700 focus:outline-none truncate"
                       >
                         <option value="">-- اختر مادة لملء UUID --</option>
-                        {gradeSubjects.map((gs, idx) => (
+                        {filteredGradeSubjectsForCreate.map((gs, idx) => (
                           <option key={gs.id} value={gs.id}>
                             {getGradeSubjectLabel(gs, idx)} ({gs.id})
                           </option>
@@ -964,30 +1382,30 @@ export function TeacherManagement() {
               ) : (
                 <select
                   value={assignmentForm.grade_subject}
-                  onChange={(e) => {
-                    if (e.target.value === "__manual__") {
-                      setUseManualUuid(true);
-                      setAssignmentForm({ ...assignmentForm, grade_subject: "" });
-                    } else {
-                      setAssignmentForm({
-                        ...assignmentForm,
-                        grade_subject: e.target.value,
-                      });
-                    }
-                  }}
+                  onChange={(e) =>
+                    handleGradeSubjectChangeForCreate(e.target.value)
+                  }
                   className="w-full px-3 py-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
                   required
                 >
                   <option value="">-- اختر المادة من القائمة --</option>
-                  {gradeSubjects.map((gs, idx) => (
+                  {filteredGradeSubjectsForCreate.map((gs, idx) => (
                     <option key={gs.id} value={gs.id}>
-                      {getGradeSubjectLabel(gs, idx)} — [{gs.id ? `${String(gs.id).slice(0, 8)}...` : ""}]
+                      {getGradeSubjectLabel(gs, idx)} — [
+                      {gs.id ? `${String(gs.id).slice(0, 8)}...` : ""}]
                     </option>
                   ))}
-                  {gradeSubjects.length === 0 && (
-                    <option value="" disabled>-- جاري تحميل قائمة المواد المقررة --</option>
+                  {filteredGradeSubjectsForCreate.length === 0 && (
+                    <option value="" disabled>
+                      {selectedGradeForCreate
+                        ? "-- لا توجد مواد مقررة مسجلة لهذا الصف --"
+                        : "-- جاري تحميل قائمة المواد المقررة --"}
+                    </option>
                   )}
-                  <option value="__manual__" className="text-teal-600 font-bold bg-teal-50">
+                  <option
+                    value="__manual__"
+                    className="text-teal-600 font-bold bg-teal-50"
+                  >
                     ➕ إدخال معرّف المادة (UUID) يدوياً...
                   </option>
                 </select>
@@ -995,14 +1413,22 @@ export function TeacherManagement() {
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-semibold text-slate-700">
-                  الشعبة الصفية (Section) <span className="text-red-500">*</span>
-                </label>
+              <div className="flex items-center justify-between gap-2 mb-1.5 whitespace-nowrap">
+                <div className="flex items-center gap-1.5 whitespace-nowrap overflow-hidden">
+                  <label className="block text-xs font-semibold text-slate-700 whitespace-nowrap">
+                    الشعبة الصفية (Section){" "}
+                    <span className="text-red-500">*</span>
+                  </label>
+                  {activeGradeNameForCreate && (
+                    <span className="text-[10px] font-normal text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">
+                      ({filteredSectionsForCreate.length} شُعب متاحة)
+                    </span>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={() => setUseManualUuid(!useManualUuid)}
-                  className="text-[11px] text-teal-600 hover:underline font-semibold"
+                  className="text-[11px] text-teal-600 hover:underline font-semibold whitespace-nowrap shrink-0"
                 >
                   {useManualUuid ? "القائمة" : "يدوياً"}
                 </button>
@@ -1023,7 +1449,7 @@ export function TeacherManagement() {
                     className="w-full px-3 py-2 border rounded-xl text-xs font-mono focus:ring-2 focus:ring-teal-500 focus:outline-none bg-slate-50/50 hover:bg-white focus:bg-white"
                     required
                   />
-                  {sections.length > 0 && (
+                  {filteredSectionsForCreate.length > 0 && (
                     <div className="flex items-center gap-1 text-[10px] text-slate-500">
                       <span className="shrink-0 text-slate-400">تعبئة:</span>
                       <select
@@ -1039,7 +1465,7 @@ export function TeacherManagement() {
                         className="flex-1 px-1.5 py-0.5 border border-slate-200 rounded text-[10px] bg-white text-slate-700 focus:outline-none truncate"
                       >
                         <option value="">-- اختر شعبة لملء UUID --</option>
-                        {sections.map((sec, idx) => (
+                        {filteredSectionsForCreate.map((sec, idx) => (
                           <option key={sec.id} value={sec.id}>
                             {getSectionLabel(sec, idx)} ({sec.id})
                           </option>
@@ -1065,16 +1491,28 @@ export function TeacherManagement() {
                   className="w-full px-3 py-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
                   required
                 >
-                  <option value="">-- اختر الشعبة من القائمة --</option>
-                  {sections.map((sec, idx) => (
+                  <option value="">
+                    {filteredSectionsForCreate.length === 0 &&
+                    activeGradeForCreate
+                      ? "-- لا توجد شُعب مسجلة لهذا الصف --"
+                      : "-- اختر الشعبة من القائمة --"}
+                  </option>
+                  {filteredSectionsForCreate.map((sec, idx) => (
                     <option key={sec.id} value={sec.id}>
-                      {getSectionLabel(sec, idx)} — [{sec.id ? `${String(sec.id).slice(0, 8)}...` : ""}]
+                      {getSectionLabel(sec, idx)} — [
+                      {sec.id ? `${String(sec.id).slice(0, 8)}...` : ""}]
                     </option>
                   ))}
-                  {sections.length === 0 && (
-                    <option value="" disabled>-- جاري تحميل قائمة الشُعب الصفية --</option>
-                  )}
-                  <option value="__manual__" className="text-teal-600 font-bold bg-teal-50">
+                  {filteredSectionsForCreate.length === 0 &&
+                    !activeGradeForCreate && (
+                      <option value="" disabled>
+                        -- جاري تحميل قائمة الشُعب الصفية --
+                      </option>
+                    )}
+                  <option
+                    value="__manual__"
+                    className="text-teal-600 font-bold bg-teal-50"
+                  >
                     ➕ إدخال معرّف الشعبة (UUID) يدوياً...
                   </option>
                 </select>
@@ -1082,11 +1520,12 @@ export function TeacherManagement() {
             </div>
           </div>
 
-          {/* 3. Dates - Responsive Stack */}
+          {/* 4. Dates - Responsive Stack */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                تاريخ بداية التكليف <span className="text-red-500">*</span>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5 whitespace-nowrap">
+                تاريخ بداية التكليف (start_date){" "}
+                <span className="text-red-500">*</span>
               </label>
               <input
                 type="date"
@@ -1102,9 +1541,11 @@ export function TeacherManagement() {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                تاريخ النهاية{" "}
-                <span className="text-slate-400 font-normal">(اختياري)</span>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5 whitespace-nowrap">
+                تاريخ نهاية التكليف (end_date){" "}
+                <span className="text-slate-400 font-normal text-[11px] whitespace-nowrap">
+                  (اختياري)
+                </span>
               </label>
               <input
                 type="date"
@@ -1121,7 +1562,11 @@ export function TeacherManagement() {
           </div>
 
           <div className="pt-3 flex flex-col sm:flex-row gap-2">
-            <Button type="submit" isLoading={isSubmitting} className="flex-1 font-bold">
+            <Button
+              type="submit"
+              isLoading={isSubmitting}
+              className="flex-1 font-bold"
+            >
               إسناد التكليف الآن
             </Button>
             <Button
@@ -1141,8 +1586,12 @@ export function TeacherManagement() {
         isOpen={isEditAssignmentModalOpen}
         onClose={() => setIsEditAssignmentModalOpen(false)}
         title="تعديل بيانات التكليف الأكاديمي (PATCH Assignment)"
+        maxWidth="max-w-xl sm:max-w-2xl"
       >
-        <form onSubmit={handlePatchAssignment} className="space-y-3.5 sm:space-y-4 text-right">
+        <form
+          onSubmit={handlePatchAssignment}
+          className="space-y-3.5 sm:space-y-4 text-right"
+        >
           {modalError && <Alert type="error">{modalError}</Alert>}
 
           {/* Mode Selector Tabs */}
@@ -1180,23 +1629,26 @@ export function TeacherManagement() {
                 <span>نمط الإدخال اليدوي لمعرّفات النظام (UUIDs)</span>
               </div>
               <p className="text-slate-600 text-[11px] leading-relaxed">
-                يرجى إدخال معرّفات UUID المباشرة للمعلم والمادة المقررة والشعبة، أو الاستعانة بقوائم التعبئة السريعة أسفل كل حقل.
+                يرجى إدخال معرّفات UUID المباشرة للمعلم والمادة المقررة والشعبة،
+                أو الاستعانة بقوائم التعبئة السريعة أسفل كل حقل.
               </p>
             </div>
           )}
 
           {/* 1. Teacher */}
           <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs font-semibold text-slate-700">
+            <div className="flex items-center justify-between gap-2 mb-1.5 whitespace-nowrap">
+              <label className="block text-xs font-semibold text-slate-700 whitespace-nowrap">
                 المعلم المكلف (Teacher) <span className="text-red-500">*</span>
               </label>
               <button
                 type="button"
                 onClick={() => setUseManualUuid(!useManualUuid)}
-                className="text-[11px] text-teal-600 hover:underline font-semibold"
+                className="text-[11px] text-teal-600 hover:underline font-semibold whitespace-nowrap shrink-0"
               >
-                {useManualUuid ? "التبديل للقائمة المنسدلة" : "إدخال UUID يدوياً"}
+                {useManualUuid
+                  ? "التبديل للقائمة المنسدلة"
+                  : "إدخال UUID يدوياً"}
               </button>
             </div>
 
@@ -1217,7 +1669,9 @@ export function TeacherManagement() {
                 />
                 {teachers.length > 0 && (
                   <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                    <span className="shrink-0 text-slate-400">تعبئة سريعة:</span>
+                    <span className="shrink-0 text-slate-400">
+                      تعبئة سريعة:
+                    </span>
                     <select
                       value=""
                       onChange={(e) => {
@@ -1230,7 +1684,9 @@ export function TeacherManagement() {
                       }}
                       className="flex-1 px-2 py-1 border border-slate-200 rounded-lg text-[11px] bg-white text-slate-700 focus:outline-none"
                     >
-                      <option value="">-- اختر معلماً لنسخ معرّفه تلقائياً --</option>
+                      <option value="">
+                        -- اختر معلماً لنسخ معرّفه تلقائياً --
+                      </option>
                       {teachers.map((t) => (
                         <option key={t.id} value={t.id}>
                           {getTeacherLabel(t)} ({t.id})
@@ -1246,7 +1702,10 @@ export function TeacherManagement() {
                 onChange={(e) => {
                   if (e.target.value === "__manual__") {
                     setUseManualUuid(true);
-                    setEditAssignmentForm({ ...editAssignmentForm, teacher: "" });
+                    setEditAssignmentForm({
+                      ...editAssignmentForm,
+                      teacher: "",
+                    });
                   } else {
                     setEditAssignmentForm({
                       ...editAssignmentForm,
@@ -1260,30 +1719,75 @@ export function TeacherManagement() {
                 <option value="">-- اختر المعلم من القائمة --</option>
                 {teachers.map((t) => (
                   <option key={t.id} value={t.id}>
-                    {getTeacherLabel(t)} — [{t.id ? `${String(t.id).slice(0, 8)}...` : ""}]
+                    {getTeacherLabel(t)} — [
+                    {t.id ? `${String(t.id).slice(0, 8)}...` : ""}]
                   </option>
                 ))}
                 {teachers.length === 0 && (
-                  <option value="" disabled>-- جاري تحميل قائمة المعلمين --</option>
+                  <option value="" disabled>
+                    -- جاري تحميل قائمة المعلمين --
+                  </option>
                 )}
-                <option value="__manual__" className="text-teal-600 font-bold bg-teal-50">
+                <option
+                  value="__manual__"
+                  className="text-teal-600 font-bold bg-teal-50"
+                >
                   ➕ إدخال معرّف المعلم (UUID) يدوياً...
                 </option>
               </select>
             )}
           </div>
 
-          {/* 2. Grade Subject & Section - Responsive Stack */}
+          {/* 2. Class (Grade Level) Selector for Edit */}
+          <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-200/80 space-y-2">
+            <div className="flex items-center justify-between gap-2 whitespace-nowrap">
+              <label className="flex items-center gap-1.5 text-xs font-bold text-slate-800 whitespace-nowrap">
+                <GraduationCap className="w-4 h-4 text-teal-600 shrink-0" />
+                <span className="whitespace-nowrap">
+                  الصف الدراسي (Class / Grade Level)
+                </span>
+              </label>
+              {selectedGradeForEdit && (
+                <button
+                  type="button"
+                  onClick={() => handleGradeChangeForEdit("")}
+                  className="text-[11px] text-teal-600 hover:text-teal-800 hover:underline font-medium whitespace-nowrap shrink-0"
+                >
+                  عرض جميع الصفوف
+                </button>
+              )}
+            </div>
+            <select
+              value={selectedGradeForEdit}
+              onChange={(e) => handleGradeChangeForEdit(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white text-slate-800 focus:ring-2 focus:ring-teal-500 focus:outline-none font-medium shadow-sm"
+            >
+              <option value="">-- اختر الصف لتصفية المواد والشُعب --</option>
+              {derivedGradeLevels.map((gl) => (
+                <option key={gl.id} value={gl.id}>
+                  {gl.name || gl.display_name || gl.title}
+                </option>
+              ))}
+            </select>
+            {activeGradeNameForEdit && (
+              <p className="text-[11px] text-teal-700 font-medium">
+                ✓ سيتم عرض شُعب ومواد ({activeGradeNameForEdit}) فقط
+              </p>
+            )}
+          </div>
+
+          {/* 3. Grade Subject & Section Select - Responsive Stack */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-semibold text-slate-700">
-                  المادة المقررة (Grade Subject) <span className="text-red-500">*</span>
+              <div className="flex items-center justify-between gap-2 mb-1.5 whitespace-nowrap">
+                <label className="block text-xs font-semibold text-slate-700 whitespace-nowrap">
+                  المادة المقررة (Grade Subject){" "}
+                  <span className="text-red-500">*</span>
                 </label>
                 <button
                   type="button"
                   onClick={() => setUseManualUuid(!useManualUuid)}
-                  className="text-[11px] text-teal-600 hover:underline font-semibold"
+                  className="text-[11px] text-teal-600 hover:underline font-semibold whitespace-nowrap shrink-0"
                 >
                   {useManualUuid ? "القائمة" : "يدوياً"}
                 </button>
@@ -1304,23 +1808,20 @@ export function TeacherManagement() {
                     className="w-full px-3 py-2 border rounded-xl text-xs font-mono focus:ring-2 focus:ring-teal-500 focus:outline-none bg-slate-50/50 hover:bg-white focus:bg-white"
                     required
                   />
-                  {gradeSubjects.length > 0 && (
+                  {filteredGradeSubjectsForEdit.length > 0 && (
                     <div className="flex items-center gap-1 text-[10px] text-slate-500">
                       <span className="shrink-0 text-slate-400">تعبئة:</span>
                       <select
                         value=""
                         onChange={(e) => {
                           if (e.target.value) {
-                            setEditAssignmentForm({
-                              ...editAssignmentForm,
-                              grade_subject: e.target.value,
-                            });
+                            handleGradeSubjectChangeForEdit(e.target.value);
                           }
                         }}
                         className="flex-1 px-1.5 py-0.5 border border-slate-200 rounded text-[10px] bg-white text-slate-700 focus:outline-none truncate"
                       >
                         <option value="">-- اختر مادة لملء UUID --</option>
-                        {gradeSubjects.map((gs, idx) => (
+                        {filteredGradeSubjectsForEdit.map((gs, idx) => (
                           <option key={gs.id} value={gs.id}>
                             {getGradeSubjectLabel(gs, idx)} ({gs.id})
                           </option>
@@ -1332,30 +1833,30 @@ export function TeacherManagement() {
               ) : (
                 <select
                   value={editAssignmentForm.grade_subject}
-                  onChange={(e) => {
-                    if (e.target.value === "__manual__") {
-                      setUseManualUuid(true);
-                      setEditAssignmentForm({ ...editAssignmentForm, grade_subject: "" });
-                    } else {
-                      setEditAssignmentForm({
-                        ...editAssignmentForm,
-                        grade_subject: e.target.value,
-                      });
-                    }
-                  }}
+                  onChange={(e) =>
+                    handleGradeSubjectChangeForEdit(e.target.value)
+                  }
                   className="w-full px-3 py-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
                   required
                 >
                   <option value="">-- اختر المادة من القائمة --</option>
-                  {gradeSubjects.map((gs, idx) => (
+                  {filteredGradeSubjectsForEdit.map((gs, idx) => (
                     <option key={gs.id} value={gs.id}>
-                      {getGradeSubjectLabel(gs, idx)} — [{gs.id ? `${String(gs.id).slice(0, 8)}...` : ""}]
+                      {getGradeSubjectLabel(gs, idx)} — [
+                      {gs.id ? `${String(gs.id).slice(0, 8)}...` : ""}]
                     </option>
                   ))}
-                  {gradeSubjects.length === 0 && (
-                    <option value="" disabled>-- جاري تحميل قائمة المواد --</option>
+                  {filteredGradeSubjectsForEdit.length === 0 && (
+                    <option value="" disabled>
+                      {selectedGradeForEdit
+                        ? "-- لا توجد مواد مقررة مسجلة لهذا الصف --"
+                        : "-- جاري تحميل قائمة المواد --"}
+                    </option>
                   )}
-                  <option value="__manual__" className="text-teal-600 font-bold bg-teal-50">
+                  <option
+                    value="__manual__"
+                    className="text-teal-600 font-bold bg-teal-50"
+                  >
                     ➕ إدخال معرّف المادة (UUID) يدوياً...
                   </option>
                 </select>
@@ -1363,14 +1864,22 @@ export function TeacherManagement() {
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-semibold text-slate-700">
-                  الشعبة الصفية (Section) <span className="text-red-500">*</span>
-                </label>
+              <div className="flex items-center justify-between gap-2 mb-1.5 whitespace-nowrap">
+                <div className="flex items-center gap-1.5 whitespace-nowrap overflow-hidden">
+                  <label className="block text-xs font-semibold text-slate-700 whitespace-nowrap">
+                    الشعبة الصفية (Section){" "}
+                    <span className="text-red-500">*</span>
+                  </label>
+                  {activeGradeNameForEdit && (
+                    <span className="text-[10px] font-normal text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">
+                      ({filteredSectionsForEdit.length} شُعب متاحة)
+                    </span>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={() => setUseManualUuid(!useManualUuid)}
-                  className="text-[11px] text-teal-600 hover:underline font-semibold"
+                  className="text-[11px] text-teal-600 hover:underline font-semibold whitespace-nowrap shrink-0"
                 >
                   {useManualUuid ? "القائمة" : "يدوياً"}
                 </button>
@@ -1391,7 +1900,7 @@ export function TeacherManagement() {
                     className="w-full px-3 py-2 border rounded-xl text-xs font-mono focus:ring-2 focus:ring-teal-500 focus:outline-none bg-slate-50/50 hover:bg-white focus:bg-white"
                     required
                   />
-                  {sections.length > 0 && (
+                  {filteredSectionsForEdit.length > 0 && (
                     <div className="flex items-center gap-1 text-[10px] text-slate-500">
                       <span className="shrink-0 text-slate-400">تعبئة:</span>
                       <select
@@ -1407,7 +1916,7 @@ export function TeacherManagement() {
                         className="flex-1 px-1.5 py-0.5 border border-slate-200 rounded text-[10px] bg-white text-slate-700 focus:outline-none truncate"
                       >
                         <option value="">-- اختر شعبة لملء UUID --</option>
-                        {sections.map((sec, idx) => (
+                        {filteredSectionsForEdit.map((sec, idx) => (
                           <option key={sec.id} value={sec.id}>
                             {getSectionLabel(sec, idx)} ({sec.id})
                           </option>
@@ -1422,7 +1931,10 @@ export function TeacherManagement() {
                   onChange={(e) => {
                     if (e.target.value === "__manual__") {
                       setUseManualUuid(true);
-                      setEditAssignmentForm({ ...editAssignmentForm, section: "" });
+                      setEditAssignmentForm({
+                        ...editAssignmentForm,
+                        section: "",
+                      });
                     } else {
                       setEditAssignmentForm({
                         ...editAssignmentForm,
@@ -1433,16 +1945,27 @@ export function TeacherManagement() {
                   className="w-full px-3 py-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
                   required
                 >
-                  <option value="">-- اختر الشعبة من القائمة --</option>
-                  {sections.map((sec, idx) => (
+                  <option value="">
+                    {filteredSectionsForEdit.length === 0 && activeGradeForEdit
+                      ? "-- لا توجد شُعب مسجلة لهذا الصف --"
+                      : "-- اختر الشعبة من القائمة --"}
+                  </option>
+                  {filteredSectionsForEdit.map((sec, idx) => (
                     <option key={sec.id} value={sec.id}>
-                      {getSectionLabel(sec, idx)} — [{sec.id ? `${String(sec.id).slice(0, 8)}...` : ""}]
+                      {getSectionLabel(sec, idx)} — [
+                      {sec.id ? `${String(sec.id).slice(0, 8)}...` : ""}]
                     </option>
                   ))}
-                  {sections.length === 0 && (
-                    <option value="" disabled>-- جاري تحميل قائمة الشُعب --</option>
-                  )}
-                  <option value="__manual__" className="text-teal-600 font-bold bg-teal-50">
+                  {filteredSectionsForEdit.length === 0 &&
+                    !activeGradeForEdit && (
+                      <option value="" disabled>
+                        -- جاري تحميل قائمة الشُعب --
+                      </option>
+                    )}
+                  <option
+                    value="__manual__"
+                    className="text-teal-600 font-bold bg-teal-50"
+                  >
                     ➕ إدخال معرّف الشعبة (UUID) يدوياً...
                   </option>
                 </select>
@@ -1453,7 +1976,7 @@ export function TeacherManagement() {
           {/* 3. Dates - Responsive Stack */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5 whitespace-nowrap">
                 تاريخ بداية التكليف (start_date){" "}
                 <span className="text-red-500">*</span>
               </label>
@@ -1471,9 +1994,11 @@ export function TeacherManagement() {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5 whitespace-nowrap">
                 تاريخ نهاية التكليف (end_date){" "}
-                <span className="text-slate-400 font-normal">(اختياري)</span>
+                <span className="text-slate-400 font-normal text-[11px] whitespace-nowrap">
+                  (اختياري)
+                </span>
               </label>
               <input
                 type="date"
@@ -1490,7 +2015,11 @@ export function TeacherManagement() {
           </div>
 
           <div className="pt-3 flex flex-col sm:flex-row gap-2">
-            <Button type="submit" isLoading={isSubmitting} className="flex-1 font-bold">
+            <Button
+              type="submit"
+              isLoading={isSubmitting}
+              className="flex-1 font-bold"
+            >
               حفظ التعديلات
             </Button>
             <Button
@@ -1510,6 +2039,7 @@ export function TeacherManagement() {
         isOpen={isEndAssignmentModalOpen}
         onClose={() => setIsEndAssignmentModalOpen(false)}
         title="إنهاء التكليف الأكاديمي (End Assignment Action)"
+        maxWidth="max-w-lg"
       >
         <form onSubmit={handleEndAssignment} className="space-y-4 text-right">
           {modalError && <Alert type="error">{modalError}</Alert>}
@@ -1520,7 +2050,7 @@ export function TeacherManagement() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-slate-700 mb-1 whitespace-nowrap">
               تاريخ نهاية التكليف (end_date)
             </label>
             <input
@@ -1533,7 +2063,11 @@ export function TeacherManagement() {
           </div>
 
           <div className="pt-3 flex flex-col sm:flex-row gap-2">
-            <Button type="submit" isLoading={isSubmitting} className="flex-1 font-bold">
+            <Button
+              type="submit"
+              isLoading={isSubmitting}
+              className="flex-1 font-bold"
+            >
               تأكيد إنهاء التكليف
             </Button>
             <Button

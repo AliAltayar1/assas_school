@@ -31,16 +31,9 @@ export const appointmentsService = {
   /**
    * 3. POST Approve appointment request
    * @param {string} id - Appointment UUID
-   * @param {string} decisionReason - Mandatory reason for approving
    */
-  approve: async (id, decisionReason) => {
-    const payload = {
-      decision_reason:
-        typeof decisionReason === "string"
-          ? decisionReason.trim()
-          : decisionReason,
-    };
-    const res = await axiosInstance.post(`/appointments/${id}/approve/`, payload);
+  approve: async (id) => {
+    const res = await axiosInstance.post(`/appointments/${id}/approve/`, {});
     return res.data;
   },
 

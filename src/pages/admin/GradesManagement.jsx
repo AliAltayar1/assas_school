@@ -456,28 +456,26 @@ export function GradesManagement() {
     try {
       // GET /grades/assessments/{ASSESSMENT_UUID}/scores/?section={SECTION_UUID}
       const res = await api.grades.getScores(assessment.id, sectionUuid);
-      const studentScores = extractPaginatedList(res);
+
+      // Handle raw records from response: data.records
+      const rawRecords =
+        res?.data?.records ||
+        res?.records ||
+        (Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : []);
+
+      // If backend returned latest assessment details, update assessment state
+      if (res?.data?.assessment) {
+        setScoreSheetAssessment((prev) => ({
+          ...prev,
+          ...res.data.assessment,
+        }));
+      }
 
       // Map student records into editable state
-      const initialRecords = studentScores.map((item) => {
-        const enrollmentId =
-          item.enrollment_id ||
-          item.enrollment?.id ||
-          item.enrollment ||
-          item.id;
-        const studentInfo = item.student || item.student_info || {};
-        const fullName =
-          item.student_name ||
-          [
-            studentInfo.first_name,
-            studentInfo.father_name,
-            studentInfo.last_name,
-          ]
-            .filter(Boolean)
-            .join(" ") ||
-          item.name ||
-          "طالب";
-
+      const initialRecords = rawRecords.map((item) => {
+        const enrollmentId = item.enrollment;
+        const studentId = item.student;
+        const fullName = item.student_display || "طالب";
         const existingScore =
           item.score !== null && item.score !== undefined
             ? String(item.score)
@@ -485,9 +483,16 @@ export function GradesManagement() {
 
         return {
           enrollment: enrollmentId,
+          student: studentId,
           student_name: fullName,
-          national_id: studentInfo.national_id || item.national_id || "",
+          national_id:
+            item.national_id ||
+            (studentId ? `${String(studentId).slice(0, 8)}...` : "—"),
           score_input: existingScore,
+          score: item.score,
+          updated_at: item.updated_at,
+          updated_by: item.updated_by,
+          updated_by_username: item.updated_by_username,
         };
       });
 
@@ -592,6 +597,7 @@ export function GradesManagement() {
   }, [scoreRecords]);
 
   // Publish Section Action
+  // Publish Section Action
   const handlePublishSection = async () => {
     if (!publishSectionId || !publishSectionTermId) {
       toast.error("يرجى اختيار الشعبة والفصل الدراسي للنشر.");
@@ -604,14 +610,30 @@ export function GradesManagement() {
         publishSectionId,
         publishSectionTermId,
       );
-      const pubCount = res.published_count ?? 0;
-      const skipCount = res.skipped_future_count ?? 0;
+      const payloadData = res?.data || res;
+      const pubCount =
+        payloadData?.published_count ?? res?.published_count ?? 0;
+      const skipCount =
+        payloadData?.skipped_future_count ?? res?.skipped_future_count ?? 0;
 
-      toast.success(
-        `تم نشر نتائج الشعبة بنجاح (${pubCount} تقييم منشور)${
-          skipCount > 0 ? ` - تم استثناء ${skipCount} تقييم مستقبلي` : ""
-        }`,
-      );
+      if (pubCount > 0) {
+        toast.success(
+          `تم نشر نتائج الشعبة بنجاح (${pubCount} تقييم منشور)${
+            skipCount > 0
+              ? ` — تم استثناء ${skipCount} تقييم لأن تاريخه مستقبلي`
+              : ""
+          }`,
+        );
+      } else if (skipCount > 0) {
+        toast.warning(
+          `لم يتم النشر! تم استثناء (${skipCount}) تقييم لأن تاريخ التقييم يقع في المستقبل بعد تاريخ اليوم. نظام السيرفر يمنع نشر التقييمات المستقبلية. قم بتعديل تاريخ التقييم لليوم أو تاريخ سابق لنشره فوراً.`,
+          { duration: 9000 },
+        );
+      } else {
+        toast.info(
+          "لم يتم العثور على تقييمات مسودة لنشرها لهذه الشعبة ضمن هذا الفصل.",
+        );
+      }
 
       setIsPublishSectionModalOpen(false);
       fetchAssessments();
@@ -635,14 +657,30 @@ export function GradesManagement() {
         publishGradeLevelId,
         publishGradeTermId,
       );
-      const pubCount = res.published_count ?? 0;
-      const skipCount = res.skipped_future_count ?? 0;
+      const payloadData = res?.data || res;
+      const pubCount =
+        payloadData?.published_count ?? res?.published_count ?? 0;
+      const skipCount =
+        payloadData?.skipped_future_count ?? res?.skipped_future_count ?? 0;
 
-      toast.success(
-        `تم نشر نتائج كافة شعب الصف بنجاح (${pubCount} تقييم منشور)${
-          skipCount > 0 ? ` - تم استثناء ${skipCount} تقييم مستقبلي` : ""
-        }`,
-      );
+      if (pubCount > 0) {
+        toast.success(
+          `تم نشر نتائج كافة شعب الصف بنجاح (${pubCount} تقييم منشور)${
+            skipCount > 0
+              ? ` — تم استثناء ${skipCount} تقييم مستقبلي`
+              : ""
+          }`,
+        );
+      } else if (skipCount > 0) {
+        toast.warning(
+          `لم يتم النشر! تم استثناء (${skipCount}) تقييم لأن تاريخها يقع في المستقبل. قم بتعديل تاريخ التقييم ليصبح تاريخ اليوم أو سابقاً لنشره.`,
+          { duration: 9000 },
+        );
+      } else {
+        toast.info(
+          "لم يتم العثور على تقييمات مسودة لنشرها لهذا الصف ضمن هذا الفصل.",
+        );
+      }
 
       setIsPublishGradeModalOpen(false);
       fetchAssessments();
@@ -1049,6 +1087,10 @@ export function GradesManagement() {
               const allPublished =
                 assessmentSections.length > 0 &&
                 assessmentSections.every((s) => s.status === "published");
+              const isFutureDate =
+                assessment.assessment_date &&
+                assessment.assessment_date >
+                  new Date().toISOString().split("T")[0];
 
               return (
                 <div
@@ -1066,6 +1108,14 @@ export function GradesManagement() {
                           {assessment.grade_level_display && (
                             <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[11px] font-bold rounded-lg border border-slate-200">
                               {assessment.grade_level_display}
+                            </span>
+                          )}
+                          {isFutureDate && (
+                            <span
+                              className="px-2 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-black rounded-lg"
+                              title="التقييمات المستقبلية لا يمكن نشرها حتى يحين موعدها أو يتم تعديل تاريخها لتاريخ اليوم"
+                            >
+                              ⏳ مستقبلي
                             </span>
                           )}
                         </div>
@@ -1109,6 +1159,7 @@ export function GradesManagement() {
                           الشعب المرتبطة ({assessmentSections.length})
                         </span>
                       </span>
+
                       {hasAnyPublished ? (
                         <span className="text-emerald-700 font-extrabold text-[11px] flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
                           <CheckCircle2 className="w-3 h-3" />
@@ -1924,11 +1975,12 @@ export function GradesManagement() {
           <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 text-emerald-950 text-xs space-y-1.5">
             <div className="font-black flex items-center gap-1.5">
               <Info className="w-4 h-4 text-emerald-700" />
-              <span>آلية نشر الشعبة:</span>
+              <span>شروط وآلية نشر الشعبة:</span>
             </div>
-            <p>
-              سيتم نشر نتائج كافة التقييمات الخاصة بهذه الشعبة ضمن الفصل
-              المختار. التقييمات المستقبلية لن يتم نشرها وستبقى مسودة.
+            <p className="leading-relaxed">
+              سيتم نشر نتائج كافة تقييمات هذه الشعبة ضمن الفصل المختار.
+              <br />
+              <strong className="text-amber-800 font-bold">⚠️ تنبيه هام:</strong> التقييمات التي يقع تاريخها في المستقبل (بعد تاريخ اليوم) لا يقبل السيرفر نشرها وتستثنى تلقائياً لتبقى مسودة حتى يحين موعدها أو يتم تعديل تاريخها لتاريخ اليوم.
             </p>
           </div>
 

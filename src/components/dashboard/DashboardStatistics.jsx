@@ -270,7 +270,6 @@ export function DashboardStatistics({ role = "school_admin" }) {
           isLoading={isLoading}
           linkTo={isAdmin ? "/admin/appointments" : "/secretariat/appointments"}
         />
-
         <StatCard
           title="استفسارات الأهالي المعلقة"
           value={formatNumber(overview.unanswered_guardian_requests_count)}

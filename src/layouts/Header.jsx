@@ -37,10 +37,10 @@ export function Header() {
             </div>
             <div>
               <h1 className="font-bold text-base sm:text-lg leading-none">
-                منصة مدرسة أساس الأكاديمية
+                مدارس أساس الوطنية
               </h1>
               <p className="text-xs text-teal-400 mt-0.5">
-                Asas School Academic Platform
+                National Asas Schools
               </p>
             </div>
           </div>
