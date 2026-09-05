@@ -206,13 +206,13 @@ export function FinanceManagement() {
         setAccountsHasPrev(Boolean(previous));
       } catch (err) {
         setAccountsError(
-          parseApiError(err, "حدث خطأ أثناء تحميل قائمة الحسابات المالية.")
+          parseApiError(err, "حدث خطأ أثناء تحميل قائمة الحسابات المالية."),
         );
       } finally {
         setIsAccountsLoading(false);
       }
     },
-    [accountsPage, debouncedSearch, yearFilter, gradeFilter, statusFilter]
+    [accountsPage, debouncedSearch, yearFilter, gradeFilter, statusFilter],
   );
 
   // Fetch Tuition Plans
@@ -226,7 +226,7 @@ export function FinanceManagement() {
       setTuitionPlans(results);
     } catch (err) {
       setPlansError(
-        parseApiError(err, "حدث خطأ أثناء تحميل خطط الرسوم الدراسية.")
+        parseApiError(err, "حدث خطأ أثناء تحميل خطط الرسوم الدراسية."),
       );
     } finally {
       setIsPlansLoading(false);
@@ -254,7 +254,7 @@ export function FinanceManagement() {
       setAccountDetails(details);
     } catch (err) {
       setAccountDetailsError(
-        parseApiError(err, "حدث خطأ أثناء تحميل تفاصيل الحساب المالي.")
+        parseApiError(err, "حدث خطأ أثناء تحميل تفاصيل الحساب المالي."),
       );
     } finally {
       setIsAccountDetailsLoading(false);
@@ -400,10 +400,13 @@ export function FinanceManagement() {
     if (paymentForm.currency === "syp") {
       const rateNum = parseFloat(paymentForm.exchange_rate_syp_per_usd);
       if (isNaN(rateNum) || rateNum <= 0) {
-        setPaymentModalError("يرجى إدخال سعر صرف صالح لليرة السورية مقابل الدولار.");
+        setPaymentModalError(
+          "يرجى إدخال سعر صرف صالح لليرة السورية مقابل الدولار.",
+        );
         return;
       }
-      payload.exchange_rate_syp_per_usd = paymentForm.exchange_rate_syp_per_usd.trim();
+      payload.exchange_rate_syp_per_usd =
+        paymentForm.exchange_rate_syp_per_usd.trim();
     }
 
     setIsPaymentSubmitting(true);
@@ -465,7 +468,8 @@ export function FinanceManagement() {
           setDiscountModalError("يرجى إدخال سعر الصرف لليرة السورية.");
           return;
         }
-        payload.exchange_rate_syp_per_usd = discountForm.exchange_rate_syp_per_usd.trim();
+        payload.exchange_rate_syp_per_usd =
+          discountForm.exchange_rate_syp_per_usd.trim();
       }
     }
 
@@ -508,10 +512,18 @@ export function FinanceManagement() {
     try {
       const payload = { cancellation_reason: cancelReason.trim() };
       if (cancelTarget.type === "payment") {
-        await api.finance.cancelPayment(selectedAccountId, cancelTarget.id, payload);
+        await api.finance.cancelPayment(
+          selectedAccountId,
+          cancelTarget.id,
+          payload,
+        );
         toast.success("تم إلغاء الدفعة واستبعادها من الحساب بنجاح.");
       } else if (cancelTarget.type === "discount") {
-        await api.finance.cancelDiscount(selectedAccountId, cancelTarget.id, payload);
+        await api.finance.cancelDiscount(
+          selectedAccountId,
+          cancelTarget.id,
+          payload,
+        );
         toast.success("تم إلغاء الخصم واستبعاده من الحساب بنجاح.");
       }
 
@@ -542,7 +554,9 @@ export function FinanceManagement() {
 
     const rateNum = parseFloat(sypRateInput);
     if (isNaN(rateNum) || rateNum <= 0) {
-      setSypPreviewError("يرجى إدخال سعر صرف صالح لليرة السورية مقابل الدولار.");
+      setSypPreviewError(
+        "يرجى إدخال سعر صرف صالح لليرة السورية مقابل الدولار.",
+      );
       return;
     }
 
@@ -556,7 +570,9 @@ export function FinanceManagement() {
       const data = res?.data || res;
       setSypPreviewResult(data);
     } catch (err) {
-      setSypPreviewError(parseApiError(err, "فشل احتساب المتبقي بالليرة السورية."));
+      setSypPreviewError(
+        parseApiError(err, "فشل احتساب المتبقي بالليرة السورية."),
+      );
     } finally {
       setIsSypPreviewLoading(false);
     }
@@ -589,7 +605,9 @@ export function FinanceManagement() {
 
     const priceNum = parseFloat(planForm.base_tuition_usd);
     if (isNaN(priceNum) || priceNum <= 0) {
-      setPlanModalError("يرجى إدخال قسط سنوي أساسي صالح بالدولار أكبر من الصفر.");
+      setPlanModalError(
+        "يرجى إدخال قسط سنوي أساسي صالح بالدولار أكبر من الصفر.",
+      );
       return;
     }
 
@@ -619,7 +637,9 @@ export function FinanceManagement() {
           grade_level: planForm.grade_level,
           base_tuition_usd: planForm.base_tuition_usd.trim(),
         });
-        toast.success("تمت إضافة خطة الرسوم الدراسية للصف وتوليد الحسابات للطلاب المسجلين بنجاح.");
+        toast.success(
+          "تمت إضافة خطة الرسوم الدراسية للصف وتوليد الحسابات للطلاب المسجلين بنجاح.",
+        );
       }
 
       setIsPlanModalOpen(false);
@@ -640,11 +660,18 @@ export function FinanceManagement() {
       return (amount / rate).toFixed(2);
     }
     return null;
-  }, [paymentForm.currency, paymentForm.amount, paymentForm.exchange_rate_syp_per_usd]);
+  }, [
+    paymentForm.currency,
+    paymentForm.amount,
+    paymentForm.exchange_rate_syp_per_usd,
+  ]);
 
   // Dynamic calculated preview for Fixed SYP Discount
   const dynamicDiscountUsdPreview = useMemo(() => {
-    if (discountForm.discount_type !== "fixed" || discountForm.currency !== "syp") {
+    if (
+      discountForm.discount_type !== "fixed" ||
+      discountForm.currency !== "syp"
+    ) {
       return null;
     }
     const val = parseFloat(discountForm.value);
@@ -653,7 +680,12 @@ export function FinanceManagement() {
       return (val / rate).toFixed(2);
     }
     return null;
-  }, [discountForm.discount_type, discountForm.currency, discountForm.value, discountForm.exchange_rate_syp_per_usd]);
+  }, [
+    discountForm.discount_type,
+    discountForm.currency,
+    discountForm.value,
+    discountForm.exchange_rate_syp_per_usd,
+  ]);
 
   // Active totals for selected account
   const activeTotals = accountDetails?.totals || {};
@@ -677,7 +709,8 @@ export function FinanceManagement() {
             )}
           </div>
           <p className="text-xs text-slate-500 pr-1 leading-relaxed">
-            متابعة الحسابات المالية للطلاب بالدولار الأمريكي (USD)، تسجيل المقبوضات النقدية (USD/SYP)، وإدارة الخصومات الرسمية.
+            متابعة الحسابات المالية للطلاب بالدولار الأمريكي (USD)، تسجيل
+            المقبوضات النقدية (USD/SYP)، وإدارة الخصومات الرسمية.
           </p>
         </div>
 
@@ -948,7 +981,8 @@ export function FinanceManagement() {
                       لا توجد حسابات مالية مسجلة حتى الآن
                     </h3>
                     <p className="text-xs text-slate-500 leading-relaxed">
-                      يتم إنشاء الحسابات المالية تلقائياً للطلاب المسجلين فور تحديد خطة الرسوم الدراسية (Tuition Plan) لصفوفهم.
+                      يتم إنشاء الحسابات المالية تلقائياً للطلاب المسجلين فور
+                      تحديد خطة الرسوم الدراسية (Tuition Plan) لصفوفهم.
                     </p>
                     {allowTuitionPlans && (
                       <div className="pt-2">
@@ -987,24 +1021,11 @@ export function FinanceManagement() {
                     <tbody className="divide-y divide-slate-100">
                       {accounts.map((item) => {
                         const t = item.totals || {};
-                        const studentName =
-                          item.student_name ||
-                          item.student_display?.name ||
-                          item.student?.full_name ||
-                          item.student?.name ||
-                          "طالب مسجل";
-                        const gradeName =
-                          item.grade_level_name ||
-                          item.grade_level_display ||
-                          item.grade_level?.name ||
-                          "-";
-                        const yearName =
-                          item.academic_year_name ||
-                          item.academic_year_display ||
-                          item.academic_year?.name ||
-                          "-";
-                        const paymentStatus =
-                          item.payment_status || t.payment_status || "unpaid";
+
+                        const studentName = item.student_display || "طالب مسجل";
+                        const gradeName = item.grade_level_display || "-";
+                        const yearName = item.academic_year_display || "-";
+                        const paymentStatus = t.payment_status || "unpaid";
 
                         return (
                           <tr
@@ -1031,27 +1052,27 @@ export function FinanceManagement() {
 
                             {/* Base Tuition */}
                             <td className="py-3.5 px-4 whitespace-nowrap font-medium text-slate-600">
-                              {formatUSD(item.base_tuition_usd || t.base_tuition_usd)}
+                              {formatUSD(t.base_tuition_usd)}
                             </td>
 
                             {/* Discounts */}
                             <td className="py-3.5 px-4 whitespace-nowrap font-medium text-rose-600">
-                              {formatUSD(item.total_discounts_usd || t.total_discounts_usd)}
+                              {formatUSD(t.total_discounts_usd)}
                             </td>
 
                             {/* Net Tuition */}
                             <td className="py-3.5 px-4 whitespace-nowrap font-bold text-slate-900">
-                              {formatUSD(item.net_tuition_usd || t.net_tuition_usd)}
+                              {formatUSD(t.net_tuition_usd)}
                             </td>
 
                             {/* Paid */}
                             <td className="py-3.5 px-4 whitespace-nowrap font-bold text-emerald-700">
-                              {formatUSD(item.total_paid_usd || t.total_paid_usd)}
+                              {formatUSD(t.total_paid_usd)}
                             </td>
 
                             {/* Remaining */}
                             <td className="py-3.5 px-4 whitespace-nowrap font-bold text-amber-700">
-                              {formatUSD(item.remaining_usd || t.remaining_usd)}
+                              {formatUSD(t.remaining_usd)}
                             </td>
 
                             {/* Status */}
@@ -1082,17 +1103,11 @@ export function FinanceManagement() {
                 <div className="block md:hidden divide-y divide-slate-100">
                   {accounts.map((item) => {
                     const t = item.totals || {};
-                    const studentName =
-                      item.student_name ||
-                      item.student_display?.name ||
-                      item.student?.full_name ||
-                      "طالب مسجل";
-                    const gradeName =
-                      item.grade_level_name || item.grade_level?.name || "-";
-                    const yearName =
-                      item.academic_year_name || item.academic_year?.name || "-";
-                    const paymentStatus =
-                      item.payment_status || t.payment_status || "unpaid";
+
+                    const studentName = item.student_display || "طالب مسجل";
+                    const gradeName = item.grade_level_display || "-";
+                    const yearName = item.academic_year_display || "-";
+                    const paymentStatus = t.payment_status || "unpaid";
 
                     return (
                       <div
@@ -1121,21 +1136,27 @@ export function FinanceManagement() {
                         {/* Totals Summary Mini Grid */}
                         <div className="grid grid-cols-3 gap-2 bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/60 text-[11px] text-right">
                           <div>
-                            <span className="text-slate-400 block text-[10px]">الصافي:</span>
+                            <span className="text-slate-400 block text-[10px]">
+                              الصافي:
+                            </span>
                             <span className="font-bold text-slate-800">
-                              {formatUSD(item.net_tuition_usd || t.net_tuition_usd)}
+                              {formatUSD(t.net_tuition_usd)}
                             </span>
                           </div>
                           <div>
-                            <span className="text-slate-400 block text-[10px]">المدفوع:</span>
+                            <span className="text-slate-400 block text-[10px]">
+                              المدفوع:
+                            </span>
                             <span className="font-bold text-emerald-700">
-                              {formatUSD(item.total_paid_usd || t.total_paid_usd)}
+                              {formatUSD(t.total_paid_usd)}
                             </span>
                           </div>
                           <div>
-                            <span className="text-slate-400 block text-[10px]">المتبقي:</span>
+                            <span className="text-slate-400 block text-[10px]">
+                              المتبقي:
+                            </span>
                             <span className="font-bold text-amber-700">
-                              {formatUSD(item.remaining_usd || t.remaining_usd)}
+                              {formatUSD(t.remaining_usd)}
                             </span>
                           </div>
                         </div>
@@ -1183,7 +1204,10 @@ export function FinanceManagement() {
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 flex items-start gap-2">
             <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <p className="leading-relaxed">
-              <strong>قاعدة تشغيلية:</strong> يتم تحديد القسط السنوي الأساسي بالدولار الأمريكي (USD) لكل صف دراسي وسنة. فور تحديد السعر، يقوم النظام تلقائياً بتوليد الحسابات المالية لجميع الطلاب المسجلين بالصف.
+              <strong>قاعدة تشغيلية:</strong> يتم تحديد القسط السنوي الأساسي
+              بالدولار الأمريكي (USD) لكل صف دراسي وسنة. فور تحديد السعر، يقوم
+              النظام تلقائياً بتوليد الحسابات المالية لجميع الطلاب المسجلين
+              بالصف.
             </p>
           </div>
 
@@ -1210,7 +1234,8 @@ export function FinanceManagement() {
                   لا توجد خطط رسوم محددة حتى الآن
                 </h3>
                 <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                  قم بإضافة القسط الأساسي لكل صف دراسي لتفعيل الحسابات المالية للطلاب.
+                  قم بإضافة القسط الأساسي لكل صف دراسي لتفعيل الحسابات المالية
+                  للطلاب.
                 </p>
                 <div className="pt-2">
                   <Button
@@ -1230,22 +1255,17 @@ export function FinanceManagement() {
                     <tr>
                       <th className="py-3.5 px-4">السنة الدراسية</th>
                       <th className="py-3.5 px-4">الصف الدراسي</th>
-                      <th className="py-3.5 px-4">القسط السنوي الأساسي (USD)</th>
+                      <th className="py-3.5 px-4">
+                        القسط السنوي الأساسي (USD)
+                      </th>
                       <th className="py-3.5 px-4 text-center">الإجراء</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {tuitionPlans.map((plan) => {
-                      const yearName =
-                        plan.academic_year_name ||
-                        plan.academic_year_display ||
-                        plan.academic_year?.name ||
-                        "-";
-                      const gradeName =
-                        plan.grade_level_name ||
-                        plan.grade_level_display ||
-                        plan.grade_level?.name ||
-                        "-";
+                      console.log(plan);
+                      const yearName = plan.academic_year_display || "-";
+                      const gradeName = plan.grade_level_display || "-";
 
                       return (
                         <tr
@@ -1317,6 +1337,8 @@ export function FinanceManagement() {
         ) : accountDetails ? (
           <div className="space-y-5 text-right dir-rtl" dir="rtl">
             {/* Header Identity Card */}
+            {console.log("accountDetails")}
+            {console.log(activeTotals)}
             <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 sm:p-4 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
                 <div className="flex items-center gap-2">
@@ -1325,27 +1347,17 @@ export function FinanceManagement() {
                   </div>
                   <div>
                     <h3 className="font-bold text-sm sm:text-base text-slate-900">
-                      {accountDetails.student_name ||
-                        accountDetails.student_display?.name ||
-                        accountDetails.student?.full_name ||
-                        "الطالب"}
+                      {accountDetails.student_display || "الطالب"}
                     </h3>
                     <p className="text-[11px] text-slate-500 font-medium">
-                      {accountDetails.grade_level_name ||
-                        accountDetails.grade_level?.name}{" "}
-                      •{" "}
-                      {accountDetails.academic_year_name ||
-                        accountDetails.academic_year?.name}
+                      {accountDetails.grade_level_display} •{" "}
+                      {accountDetails.academic_year_display}
                     </p>
                   </div>
                 </div>
 
                 <div>
-                  {renderStatusBadge(
-                    activeTotals.payment_status ||
-                      accountDetails.payment_status ||
-                      "unpaid"
-                  )}
+                  {renderStatusBadge(activeTotals.payment_status || "unpaid")}
                 </div>
               </div>
 
@@ -1505,7 +1517,8 @@ export function FinanceManagement() {
                       لم يتم تسجيل أي دفعات نقدية لهذا الحساب حتى الآن
                     </p>
                     <p className="text-[11px]">
-                      استخدم زر "تسجيل دفعة" بالأعلى لقبض دفعة بالدولار أو بالليرة السورية.
+                      استخدم زر "تسجيل دفعة" بالأعلى لقبض دفعة بالدولار أو
+                      بالليرة السورية.
                     </p>
                   </div>
                 ) : (
@@ -1528,7 +1541,8 @@ export function FinanceManagement() {
                       <tbody className="divide-y divide-slate-100">
                         {accountDetails.payments.map((p) => {
                           const isCancelled = p.is_cancelled === true;
-                          const isSyp = (p.currency || "").toLowerCase() === "syp";
+                          const isSyp =
+                            (p.currency || "").toLowerCase() === "syp";
 
                           return (
                             <tr
@@ -1546,11 +1560,15 @@ export function FinanceManagement() {
                               <td className="py-2.5 px-3 whitespace-nowrap font-bold">
                                 {isCancelled ? (
                                   <del className="text-slate-400">
-                                    {isSyp ? formatSYP(p.amount) : formatUSD(p.amount)}
+                                    {isSyp
+                                      ? formatSYP(p.amount)
+                                      : formatUSD(p.amount)}
                                   </del>
                                 ) : (
                                   <span className="text-slate-900">
-                                    {isSyp ? formatSYP(p.amount) : formatUSD(p.amount)}
+                                    {isSyp
+                                      ? formatSYP(p.amount)
+                                      : formatUSD(p.amount)}
                                   </span>
                                 )}
                               </td>
@@ -1562,7 +1580,7 @@ export function FinanceManagement() {
                               <td className="py-2.5 px-3 whitespace-nowrap text-slate-500 font-medium">
                                 {p.exchange_rate_syp_per_usd
                                   ? `${new Intl.NumberFormat("ar-SY").format(
-                                      p.exchange_rate_syp_per_usd
+                                      p.exchange_rate_syp_per_usd,
                                     )} ل.س`
                                   : "-"}
                               </td>
@@ -1578,7 +1596,9 @@ export function FinanceManagement() {
                               </td>
 
                               <td className="py-2.5 px-3 whitespace-nowrap text-slate-600">
-                                {p.created_by_username || p.created_by || "المحاسب"}
+                                {p.created_by_username ||
+                                  p.created_by ||
+                                  "المحاسب"}
                               </td>
 
                               <td className="py-2.5 px-3 whitespace-nowrap">
@@ -1589,7 +1609,10 @@ export function FinanceManagement() {
                                       <span>ملغاة</span>
                                     </span>
                                     {p.cancellation_reason && (
-                                      <p className="text-[10px] text-rose-600 max-w-[150px] truncate" title={p.cancellation_reason}>
+                                      <p
+                                        className="text-[10px] text-rose-600 max-w-[150px] truncate"
+                                        title={p.cancellation_reason}
+                                      >
                                         السبب: {p.cancellation_reason}
                                       </p>
                                     )}
@@ -1615,7 +1638,7 @@ export function FinanceManagement() {
                                             isSyp
                                               ? formatSYP(p.amount)
                                               : formatUSD(p.amount)
-                                          }`
+                                          }`,
                                         )
                                       }
                                       className="text-xs text-rose-600 hover:text-rose-800 hover:underline font-bold"
@@ -1623,7 +1646,9 @@ export function FinanceManagement() {
                                       إلغاء الدفعة
                                     </button>
                                   ) : (
-                                    <span className="text-slate-300 text-[11px]">-</span>
+                                    <span className="text-slate-300 text-[11px]">
+                                      -
+                                    </span>
                                   )}
                                 </td>
                               )}
@@ -1656,7 +1681,8 @@ export function FinanceManagement() {
                     </p>
                     {allowDiscounts && (
                       <p className="text-[11px]">
-                        يمكنك منح خصم (نسبة مئوية أو مبلغ ثابت) عبر زر "إضافة خصم" بالأعلى.
+                        يمكنك منح خصم (نسبة مئوية أو مبلغ ثابت) عبر زر "إضافة
+                        خصم" بالأعلى.
                       </p>
                     )}
                   </div>
@@ -1681,7 +1707,8 @@ export function FinanceManagement() {
                         {accountDetails.discounts.map((d) => {
                           const isCancelled = d.is_cancelled === true;
                           const isPercentage = d.discount_type === "percentage";
-                          const isSyp = (d.currency || "").toLowerCase() === "syp";
+                          const isSyp =
+                            (d.currency || "").toLowerCase() === "syp";
 
                           return (
                             <tr
@@ -1703,7 +1730,8 @@ export function FinanceManagement() {
                                   </span>
                                 ) : (
                                   <span className="text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
-                                    مبلغ ثابت ({d.currency?.toUpperCase() || "USD"})
+                                    مبلغ ثابت (
+                                    {d.currency?.toUpperCase() || "USD"})
                                   </span>
                                 )}
                               </td>
@@ -1712,14 +1740,16 @@ export function FinanceManagement() {
                                 {isPercentage
                                   ? `${d.value}%`
                                   : isSyp
-                                  ? formatSYP(d.value)
-                                  : formatUSD(d.value)}
+                                    ? formatSYP(d.value)
+                                    : formatUSD(d.value)}
                               </td>
 
                               <td className="py-2.5 px-3 whitespace-nowrap font-bold text-rose-700">
                                 {isCancelled ? (
                                   <del className="text-slate-400">
-                                    {formatUSD(d.discount_usd || d.equivalent_usd)}
+                                    {formatUSD(
+                                      d.discount_usd || d.equivalent_usd,
+                                    )}
                                   </del>
                                 ) : (
                                   formatUSD(d.discount_usd || d.equivalent_usd)
@@ -1731,7 +1761,9 @@ export function FinanceManagement() {
                               </td>
 
                               <td className="py-2.5 px-3 whitespace-nowrap text-slate-600">
-                                {d.created_by_username || d.created_by || "الإدارة"}
+                                {d.created_by_username ||
+                                  d.created_by ||
+                                  "الإدارة"}
                               </td>
 
                               <td className="py-2.5 px-3 whitespace-nowrap">
@@ -1742,7 +1774,10 @@ export function FinanceManagement() {
                                       <span>ملغى</span>
                                     </span>
                                     {d.cancellation_reason && (
-                                      <p className="text-[10px] text-rose-600 max-w-[150px] truncate" title={d.cancellation_reason}>
+                                      <p
+                                        className="text-[10px] text-rose-600 max-w-[150px] truncate"
+                                        title={d.cancellation_reason}
+                                      >
                                         السبب: {d.cancellation_reason}
                                       </p>
                                     )}
@@ -1764,7 +1799,7 @@ export function FinanceManagement() {
                                         handleOpenCancelModal(
                                           "discount",
                                           d.id,
-                                          `الخصم (${d.reason || d.value})`
+                                          `الخصم (${d.reason || d.value})`,
                                         )
                                       }
                                       className="text-xs text-rose-600 hover:text-rose-800 hover:underline font-bold"
@@ -1772,7 +1807,9 @@ export function FinanceManagement() {
                                       إلغاء الخصم
                                     </button>
                                   ) : (
-                                    <span className="text-slate-300 text-[11px]">-</span>
+                                    <span className="text-slate-300 text-[11px]">
+                                      -
+                                    </span>
                                   )}
                                 </td>
                               )}
@@ -1810,7 +1847,11 @@ export function FinanceManagement() {
         title="تسجيل دفعة نقدية جديدة (Record Payment)"
         maxWidth="max-w-md"
       >
-        <form onSubmit={handleSubmitPayment} className="space-y-4 text-right dir-rtl" dir="rtl">
+        <form
+          onSubmit={handleSubmitPayment}
+          className="space-y-4 text-right dir-rtl"
+          dir="rtl"
+        >
           {paymentModalError && (
             <Alert type="error" title="تنبيه">
               {paymentModalError}
@@ -1819,7 +1860,9 @@ export function FinanceManagement() {
 
           {/* Remaining Balance Callout */}
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between text-xs">
-            <span className="text-slate-600 font-medium">المبلغ المتبقي على الطالب:</span>
+            <span className="text-slate-600 font-medium">
+              المبلغ المتبقي على الطالب:
+            </span>
             <span className="font-bold text-amber-700 text-sm">
               {formatUSD(activeTotals.remaining_usd)}
             </span>
@@ -1872,7 +1915,9 @@ export function FinanceManagement() {
               type="number"
               step="any"
               min="0.01"
-              placeholder={paymentForm.currency === "usd" ? "مثلاً: 250" : "مثلاً: 2500000"}
+              placeholder={
+                paymentForm.currency === "usd" ? "مثلاً: 250" : "مثلاً: 2500000"
+              }
               value={paymentForm.amount}
               onChange={(e) =>
                 setPaymentForm((prev) => ({ ...prev, amount: e.target.value }))
@@ -1952,7 +1997,11 @@ export function FinanceManagement() {
           title="إضافة خصم مالي للطالب (Add Discount)"
           maxWidth="max-w-md"
         >
-          <form onSubmit={handleSubmitDiscount} className="space-y-4 text-right dir-rtl" dir="rtl">
+          <form
+            onSubmit={handleSubmitDiscount}
+            className="space-y-4 text-right dir-rtl"
+            dir="rtl"
+          >
             {discountModalError && (
               <Alert type="error" title="تنبيه">
                 {discountModalError}
@@ -2051,17 +2100,24 @@ export function FinanceManagement() {
                 type="number"
                 step="any"
                 min="0.01"
-                max={discountForm.discount_type === "percentage" ? "100" : undefined}
+                max={
+                  discountForm.discount_type === "percentage"
+                    ? "100"
+                    : undefined
+                }
                 placeholder={
                   discountForm.discount_type === "percentage"
                     ? "مثلاً: 10 (أي 10%)"
                     : discountForm.currency === "usd"
-                    ? "مثلاً: 100"
-                    : "مثلاً: 1000000"
+                      ? "مثلاً: 100"
+                      : "مثلاً: 1000000"
                 }
                 value={discountForm.value}
                 onChange={(e) =>
-                  setDiscountForm((prev) => ({ ...prev, value: e.target.value }))
+                  setDiscountForm((prev) => ({
+                    ...prev,
+                    value: e.target.value,
+                  }))
                 }
                 className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-bold focus:ring-2 focus:ring-teal-500 focus:outline-none"
                 required
@@ -2114,7 +2170,10 @@ export function FinanceManagement() {
                 placeholder="مثلاً: خصم إخوة / تفوق دراسي / قرار إدارة"
                 value={discountForm.reason}
                 onChange={(e) =>
-                  setDiscountForm((prev) => ({ ...prev, reason: e.target.value }))
+                  setDiscountForm((prev) => ({
+                    ...prev,
+                    reason: e.target.value,
+                  }))
                 }
                 className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none"
                 required
@@ -2137,7 +2196,11 @@ export function FinanceManagement() {
                 type="submit"
                 size="sm"
                 isLoading={isDiscountSubmitting}
-                disabled={isDiscountSubmitting || !discountForm.value || !discountForm.reason}
+                disabled={
+                  isDiscountSubmitting ||
+                  !discountForm.value ||
+                  !discountForm.reason
+                }
                 className="text-xs px-5 font-bold shadow-sm"
               >
                 إضافة الخصم
@@ -2157,7 +2220,11 @@ export function FinanceManagement() {
           title="تأكيد إلغاء العملية المالية"
           maxWidth="max-w-md"
         >
-          <form onSubmit={handleSubmitCancel} className="space-y-4 text-right dir-rtl" dir="rtl">
+          <form
+            onSubmit={handleSubmitCancel}
+            className="space-y-4 text-right dir-rtl"
+            dir="rtl"
+          >
             {cancelModalError && (
               <Alert type="error" title="تنبيه">
                 {cancelModalError}
@@ -2171,7 +2238,8 @@ export function FinanceManagement() {
                   هل أنت متأكد من رغبتك في إلغاء {cancelTarget?.title}؟
                 </p>
                 <p className="text-[11px] leading-relaxed text-rose-700">
-                  سيتم تمييز السجل كـ (ملغى) واستبعاده تلقائياً من مجاميع الحساب والمتبقي، وسيبقى محفوظاً في السجل التاريخي للتدقيق.
+                  سيتم تمييز السجل كـ (ملغى) واستبعاده تلقائياً من مجاميع الحساب
+                  والمتبقي، وسيبقى محفوظاً في السجل التاريخي للتدقيق.
                 </p>
               </div>
             </div>
@@ -2226,7 +2294,11 @@ export function FinanceManagement() {
           title="معاينة المتبقي بالليرة السورية (SYP Preview)"
           maxWidth="max-w-md"
         >
-          <form onSubmit={handleSubmitSypPreview} className="space-y-4 text-right dir-rtl" dir="rtl">
+          <form
+            onSubmit={handleSubmitSypPreview}
+            className="space-y-4 text-right dir-rtl"
+            dir="rtl"
+          >
             {sypPreviewError && (
               <Alert type="error" title="تنبيه">
                 {sypPreviewError}
@@ -2234,7 +2306,9 @@ export function FinanceManagement() {
             )}
 
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between text-xs">
-              <span className="text-slate-600 font-medium">المتبقي الحالي بالدولار:</span>
+              <span className="text-slate-600 font-medium">
+                المتبقي الحالي بالدولار:
+              </span>
               <span className="font-bold text-amber-700 text-sm">
                 {formatUSD(activeTotals.remaining_usd)}
               </span>
@@ -2272,13 +2346,17 @@ export function FinanceManagement() {
                 <div className="flex items-center justify-between text-emerald-800 font-medium">
                   <span>المتبقي بالدولار:</span>
                   <span className="font-bold">
-                    {formatUSD(sypPreviewResult.remaining_usd || activeTotals.remaining_usd)}
+                    {formatUSD(
+                      sypPreviewResult.remaining_usd ||
+                        activeTotals.remaining_usd,
+                    )}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-emerald-800 font-medium">
                   <span>سعر الصرف المستخدم:</span>
                   <span className="font-bold">
-                    {sypPreviewResult.exchange_rate_syp_per_usd || sypRateInput} ل.س / $
+                    {sypPreviewResult.exchange_rate_syp_per_usd || sypRateInput}{" "}
+                    ل.س / $
                   </span>
                 </div>
                 <div className="border-t border-emerald-200 pt-2 flex items-center justify-between text-emerald-950 font-black text-sm">
@@ -2286,7 +2364,7 @@ export function FinanceManagement() {
                   <span className="text-base text-emerald-800">
                     {formatSYP(
                       sypPreviewResult.remaining_syp ||
-                        sypPreviewResult.remaining_amount_syp
+                        sypPreviewResult.remaining_amount_syp,
                     )}
                   </span>
                 </div>
@@ -2315,10 +2393,18 @@ export function FinanceManagement() {
         <Modal
           isOpen={isPlanModalOpen}
           onClose={() => setIsPlanModalOpen(false)}
-          title={editingPlan ? "تعديل القسط السنوي للصف" : "إضافة سعر صف دراسي (Tuition Plan)"}
+          title={
+            editingPlan
+              ? "تعديل القسط السنوي للصف"
+              : "إضافة سعر صف دراسي (Tuition Plan)"
+          }
           maxWidth="max-w-md"
         >
-          <form onSubmit={handleSubmitPlan} className="space-y-4 text-right dir-rtl" dir="rtl">
+          <form
+            onSubmit={handleSubmitPlan}
+            className="space-y-4 text-right dir-rtl"
+            dir="rtl"
+          >
             {planModalError && (
               <Alert type="error" title="تنبيه">
                 {planModalError}

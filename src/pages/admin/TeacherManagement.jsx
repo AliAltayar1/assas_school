@@ -5,6 +5,7 @@ import { Modal } from "../../components/ui/Modal";
 import { Button } from "../../components/ui/Button";
 import { Alert } from "../../components/ui/Alert";
 import { Pagination } from "../../components/ui/Pagination";
+import { SearchableSelect } from "../../components/ui/SearchableSelect";
 import { toast } from "sonner";
 import { parseApiError, extractPaginatedList } from "../../utils/errorUtils";
 import {
@@ -124,37 +125,6 @@ export function TeacherManagement() {
     return t.username ? `${name} (@${t.username})` : name;
   };
 
-  const getGradeSubjectLabel = (gs, index) => {
-    if (!gs) return "";
-    const subjName =
-      gs.subject_display ||
-      gs.subject_name ||
-      (typeof gs.subject === "object" ? gs.subject?.name : null) ||
-      gs.display_name ||
-      gs.title ||
-      `مادة مقررة #${index + 1}`;
-
-    const gradeName =
-      gs.grade_level_display ||
-      gs.grade_level_name ||
-      (typeof gs.grade_level === "object" ? gs.grade_level?.name : null) ||
-      "";
-
-    return gradeName ? `${subjName} (${gradeName})` : subjName;
-  };
-
-  const getSectionLabel = (sec, index) => {
-    if (!sec) return "";
-    const secName =
-      sec.name || sec.section_name || sec.title || `شعبة #${index + 1}`;
-    const gradeName =
-      sec.grade_level_display ||
-      sec.grade_level_name ||
-      (typeof sec.grade_level === "object" ? sec.grade_level?.name : null) ||
-      "";
-
-    return gradeName ? `${secName} - ${gradeName}` : secName;
-  };
 
   // Helper to format ISO date strings cleanly
   const formatDateTime = (isoString) => {
@@ -288,6 +258,63 @@ export function TeacherManagement() {
     getGradeLevelName,
   ]);
 
+  // Enhanced label extractors that resolve grade level name even when only UUID is present
+  const getGradeSubjectLabel = useCallback(
+    (gs, index) => {
+      if (!gs) return "";
+      const subjName =
+        gs.subject_display ||
+        gs.subject_name ||
+        (typeof gs.subject === "object" ? gs.subject?.name : null) ||
+        gs.display_name ||
+        gs.title ||
+        `مادة مقررة #${(index ?? 0) + 1}`;
+
+      let gradeName =
+        gs.grade_level_display ||
+        gs.grade_level_name ||
+        (typeof gs.grade_level === "object" ? gs.grade_level?.name : null) ||
+        "";
+
+      if (!gradeName && gs.grade_level) {
+        const glId =
+          typeof gs.grade_level === "object" ? gs.grade_level?.id : gs.grade_level;
+        const found = derivedGradeLevels.find((gl) => gl.id === glId);
+        if (found) {
+          gradeName = found.name || found.display_name || found.title || "";
+        }
+      }
+
+      return gradeName ? `${subjName} (${gradeName})` : subjName;
+    },
+    [derivedGradeLevels]
+  );
+
+  const getSectionLabel = useCallback(
+    (sec, index) => {
+      if (!sec) return "";
+      const secName =
+        sec.name || sec.section_name || sec.title || `شعبة #${(index ?? 0) + 1}`;
+      let gradeName =
+        sec.grade_level_display ||
+        sec.grade_level_name ||
+        (typeof sec.grade_level === "object" ? sec.grade_level?.name : null) ||
+        "";
+
+      if (!gradeName && sec.grade_level) {
+        const glId =
+          typeof sec.grade_level === "object" ? sec.grade_level?.id : sec.grade_level;
+        const found = derivedGradeLevels.find((gl) => gl.id === glId);
+        if (found) {
+          gradeName = found.name || found.display_name || found.title || "";
+        }
+      }
+
+      return gradeName ? `${secName} - ${gradeName}` : secName;
+    },
+    [derivedGradeLevels]
+  );
+
   // Check if an item (section or gradeSubject) belongs to targetGradeId
   const matchesGradeLevel = useCallback(
     (item, targetGradeId) => {
@@ -311,7 +338,7 @@ export function TeacherManagement() {
     [derivedGradeLevels, getGradeLevelId, getGradeLevelName],
   );
 
-  // Active grade level in Create modal (explicit choice or derived from selected grade_subject)
+  // Active grade level in Create modal (explicit choice or derived from selected grade_subject / section)
   const activeGradeForCreate = useMemo(() => {
     if (selectedGradeForCreate) return selectedGradeForCreate;
     if (assignmentForm.grade_subject) {
@@ -320,11 +347,17 @@ export function TeacherManagement() {
       );
       if (gs) return getGradeLevelId(gs);
     }
+    if (assignmentForm.section) {
+      const sec = sections.find((s) => s.id === assignmentForm.section);
+      if (sec) return getGradeLevelId(sec);
+    }
     return "";
   }, [
     selectedGradeForCreate,
     assignmentForm.grade_subject,
+    assignmentForm.section,
     gradeSubjects,
+    sections,
     getGradeLevelId,
   ]);
 
@@ -532,6 +565,97 @@ export function TeacherManagement() {
       section: updatedSection,
     }));
   };
+
+  const handleSectionChangeForCreate = (value) => {
+    if (value === "__manual__") {
+      setUseManualUuid(true);
+      setAssignmentForm((prev) => ({ ...prev, section: "" }));
+      return;
+    }
+
+    if (value && !selectedGradeForCreate) {
+      const sec = sections.find((s) => s.id === value);
+      const secGradeId = sec ? getGradeLevelId(sec) : "";
+      if (secGradeId) {
+        setSelectedGradeForCreate(secGradeId);
+      }
+    }
+
+    setAssignmentForm((prev) => ({
+      ...prev,
+      section: value,
+    }));
+  };
+
+  const handleSectionChangeForEdit = (value) => {
+    if (value === "__manual__") {
+      setUseManualUuid(true);
+      setEditAssignmentForm((prev) => ({ ...prev, section: "" }));
+      return;
+    }
+
+    if (value && !selectedGradeForEdit) {
+      const sec = sections.find((s) => s.id === value);
+      const secGradeId = sec ? getGradeLevelId(sec) : "";
+      if (secGradeId) {
+        setSelectedGradeForEdit(secGradeId);
+      }
+    }
+
+    setEditAssignmentForm((prev) => ({
+      ...prev,
+      section: value,
+    }));
+  };
+
+  // Memoized options for SearchableSelect inputs
+  const teacherOptions = useMemo(() => {
+    return teachers.map((t) => ({
+      value: t.id,
+      label: getTeacherLabel(t),
+      subtext: t.id ? `UUID: ${String(t.id).slice(0, 8)}...` : "",
+    }));
+  }, [teachers]);
+
+  const gradeLevelOptions = useMemo(() => {
+    return derivedGradeLevels.map((gl) => ({
+      value: gl.id,
+      label: gl.name || gl.display_name || gl.title || `صف (${gl.id.slice(0, 8)})`,
+      subtext: gl.id ? `UUID: ${String(gl.id).slice(0, 8)}...` : "",
+    }));
+  }, [derivedGradeLevels]);
+
+  const gradeSubjectOptionsForCreate = useMemo(() => {
+    return filteredGradeSubjectsForCreate.map((gs, idx) => ({
+      value: gs.id,
+      label: getGradeSubjectLabel(gs, idx),
+      subtext: gs.id ? `UUID: ${String(gs.id).slice(0, 8)}...` : "",
+    }));
+  }, [filteredGradeSubjectsForCreate, getGradeSubjectLabel]);
+
+  const sectionOptionsForCreate = useMemo(() => {
+    return filteredSectionsForCreate.map((sec, idx) => ({
+      value: sec.id,
+      label: getSectionLabel(sec, idx),
+      subtext: sec.id ? `UUID: ${String(sec.id).slice(0, 8)}...` : "",
+    }));
+  }, [filteredSectionsForCreate, getSectionLabel]);
+
+  const gradeSubjectOptionsForEdit = useMemo(() => {
+    return filteredGradeSubjectsForEdit.map((gs, idx) => ({
+      value: gs.id,
+      label: getGradeSubjectLabel(gs, idx),
+      subtext: gs.id ? `UUID: ${String(gs.id).slice(0, 8)}...` : "",
+    }));
+  }, [filteredGradeSubjectsForEdit, getGradeSubjectLabel]);
+
+  const sectionOptionsForEdit = useMemo(() => {
+    return filteredSectionsForEdit.map((sec, idx) => ({
+      value: sec.id,
+      label: getSectionLabel(sec, idx),
+      subtext: sec.id ? `UUID: ${String(sec.id).slice(0, 8)}...` : "",
+    }));
+  }, [filteredSectionsForEdit, getSectionLabel]);
 
   useEffect(() => {
     fetchAssignments(currentPage);
@@ -1247,41 +1371,34 @@ export function TeacherManagement() {
                 )}
               </div>
             ) : (
-              <select
+              <SearchableSelect
+                options={teacherOptions}
                 value={assignmentForm.teacher}
-                onChange={(e) => {
-                  if (e.target.value === "__manual__") {
+                onChange={(val) => {
+                  if (val === "__manual__") {
                     setUseManualUuid(true);
-                    setAssignmentForm({ ...assignmentForm, teacher: "" });
+                    setAssignmentForm((prev) => ({ ...prev, teacher: "" }));
                   } else {
-                    setAssignmentForm({
-                      ...assignmentForm,
-                      teacher: e.target.value,
-                    });
+                    setAssignmentForm((prev) => ({
+                      ...prev,
+                      teacher: val,
+                    }));
                   }
                 }}
-                className="w-full px-3 py-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                placeholder="-- ابحث أو اختر المعلم المكلف --"
+                searchPlaceholder="اكتب اسم المعلم للبحث..."
+                emptyMessage="لا يوجد نتائج مماثلة"
+                noOptionsMessage={
+                  teachers.length === 0
+                    ? "-- جاري تحميل قائمة المعلمين أو لا يوجد معلمين مسجلين --"
+                    : "-- لا توجد خيارات متاحة --"
+                }
                 required
-              >
-                <option value="">-- اختر المعلم من القائمة --</option>
-                {teachers.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {getTeacherLabel(t)} — [
-                    {t.id ? `${String(t.id).slice(0, 8)}...` : ""}]
-                  </option>
-                ))}
-                {teachers.length === 0 && (
-                  <option value="" disabled>
-                    -- جاري تحميل قائمة المعلمين أو لا يوجد معلمين مسجلين --
-                  </option>
-                )}
-                <option
-                  value="__manual__"
-                  className="text-teal-600 font-bold bg-teal-50"
-                >
-                  ➕ إدخال معرّف المعلم (UUID) يدوياً...
-                </option>
-              </select>
+                onManualSelect={() => {
+                  setUseManualUuid(true);
+                  setAssignmentForm((prev) => ({ ...prev, teacher: "" }));
+                }}
+              />
             )}
           </div>
 
@@ -1304,20 +1421,15 @@ export function TeacherManagement() {
                 </button>
               )}
             </div>
-            <select
+            <SearchableSelect
+              options={gradeLevelOptions}
               value={selectedGradeForCreate}
-              onChange={(e) => handleGradeChangeForCreate(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white text-slate-800 focus:ring-2 focus:ring-teal-500 focus:outline-none font-medium shadow-sm"
-            >
-              <option value="">
-                -- اختر الصف لتصفية المواد والشُعب (مثال: الصف السابع) --
-              </option>
-              {derivedGradeLevels.map((gl) => (
-                <option key={gl.id} value={gl.id}>
-                  {gl.name || gl.display_name || gl.title}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => handleGradeChangeForCreate(val)}
+              placeholder="-- ابحث أو اختر الصف لتصفية المواد والشُعب (مثال: الصف الثاني) --"
+              searchPlaceholder="اكتب اسم الصف للبحث (مثال: الثاني، السابع)..."
+              emptyMessage="لا يوجد نتائج مماثلة"
+              noOptionsMessage="-- جاري تحميل الصفوف الدراسية --"
+            />
             {activeGradeNameForCreate && (
               <p className="text-[11px] text-teal-700 font-medium">
                 ✓ سيتم عرض شُعب ومواد ({activeGradeNameForCreate}) فقط
@@ -1380,35 +1492,27 @@ export function TeacherManagement() {
                   )}
                 </div>
               ) : (
-                <select
+                <SearchableSelect
+                  options={gradeSubjectOptionsForCreate}
                   value={assignmentForm.grade_subject}
-                  onChange={(e) =>
-                    handleGradeSubjectChangeForCreate(e.target.value)
+                  onChange={(val) => handleGradeSubjectChangeForCreate(val)}
+                  placeholder="-- ابحث أو اختر المادة المقررة --"
+                  searchPlaceholder="اكتب اسم المادة للبحث (مثال: رياضيات، لغة)..."
+                  emptyMessage="لا يوجد نتائج مماثلة"
+                  noOptionsMessage={
+                    selectedGradeForCreate
+                      ? "-- لا توجد مواد مقررة مسجلة لهذا الصف --"
+                      : "-- جاري تحميل قائمة المواد المقررة --"
                   }
-                  className="w-full px-3 py-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
                   required
-                >
-                  <option value="">-- اختر المادة من القائمة --</option>
-                  {filteredGradeSubjectsForCreate.map((gs, idx) => (
-                    <option key={gs.id} value={gs.id}>
-                      {getGradeSubjectLabel(gs, idx)} — [
-                      {gs.id ? `${String(gs.id).slice(0, 8)}...` : ""}]
-                    </option>
-                  ))}
-                  {filteredGradeSubjectsForCreate.length === 0 && (
-                    <option value="" disabled>
-                      {selectedGradeForCreate
-                        ? "-- لا توجد مواد مقررة مسجلة لهذا الصف --"
-                        : "-- جاري تحميل قائمة المواد المقررة --"}
-                    </option>
-                  )}
-                  <option
-                    value="__manual__"
-                    className="text-teal-600 font-bold bg-teal-50"
-                  >
-                    ➕ إدخال معرّف المادة (UUID) يدوياً...
-                  </option>
-                </select>
+                  onManualSelect={() => {
+                    setUseManualUuid(true);
+                    setAssignmentForm((prev) => ({
+                      ...prev,
+                      grade_subject: "",
+                    }));
+                  }}
+                />
               )}
             </div>
 
@@ -1475,47 +1579,33 @@ export function TeacherManagement() {
                   )}
                 </div>
               ) : (
-                <select
+                <SearchableSelect
+                  options={sectionOptionsForCreate}
                   value={assignmentForm.section}
-                  onChange={(e) => {
-                    if (e.target.value === "__manual__") {
-                      setUseManualUuid(true);
-                      setAssignmentForm({ ...assignmentForm, section: "" });
-                    } else {
-                      setAssignmentForm({
-                        ...assignmentForm,
-                        section: e.target.value,
-                      });
-                    }
-                  }}
-                  className="w-full px-3 py-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                  required
-                >
-                  <option value="">
-                    {filteredSectionsForCreate.length === 0 &&
+                  onChange={(val) => handleSectionChangeForCreate(val)}
+                  placeholder={
+                    filteredSectionsForCreate.length === 0 &&
                     activeGradeForCreate
                       ? "-- لا توجد شُعب مسجلة لهذا الصف --"
-                      : "-- اختر الشعبة من القائمة --"}
-                  </option>
-                  {filteredSectionsForCreate.map((sec, idx) => (
-                    <option key={sec.id} value={sec.id}>
-                      {getSectionLabel(sec, idx)} — [
-                      {sec.id ? `${String(sec.id).slice(0, 8)}...` : ""}]
-                    </option>
-                  ))}
-                  {filteredSectionsForCreate.length === 0 &&
-                    !activeGradeForCreate && (
-                      <option value="" disabled>
-                        -- جاري تحميل قائمة الشُعب الصفية --
-                      </option>
-                    )}
-                  <option
-                    value="__manual__"
-                    className="text-teal-600 font-bold bg-teal-50"
-                  >
-                    ➕ إدخال معرّف الشعبة (UUID) يدوياً...
-                  </option>
-                </select>
+                      : "-- ابحث أو اختر الشعبة من القائمة --"
+                  }
+                  searchPlaceholder="اكتب للبحث (مثال: الثاني، شعبة 1)..."
+                  emptyMessage="لا يوجد نتائج مماثلة"
+                  noOptionsMessage={
+                    filteredSectionsForCreate.length === 0 &&
+                    activeGradeForCreate
+                      ? "-- لا توجد شُعب مسجلة لهذا الصف --"
+                      : "-- جاري تحميل قائمة الشُعب الصفية --"
+                  }
+                  required
+                  onManualSelect={() => {
+                    setUseManualUuid(true);
+                    setAssignmentForm((prev) => ({
+                      ...prev,
+                      section: "",
+                    }));
+                  }}
+                />
               )}
             </div>
           </div>
@@ -1697,44 +1787,34 @@ export function TeacherManagement() {
                 )}
               </div>
             ) : (
-              <select
+              <SearchableSelect
+                options={teacherOptions}
                 value={editAssignmentForm.teacher}
-                onChange={(e) => {
-                  if (e.target.value === "__manual__") {
+                onChange={(val) => {
+                  if (val === "__manual__") {
                     setUseManualUuid(true);
-                    setEditAssignmentForm({
-                      ...editAssignmentForm,
-                      teacher: "",
-                    });
+                    setEditAssignmentForm((prev) => ({ ...prev, teacher: "" }));
                   } else {
-                    setEditAssignmentForm({
-                      ...editAssignmentForm,
-                      teacher: e.target.value,
-                    });
+                    setEditAssignmentForm((prev) => ({
+                      ...prev,
+                      teacher: val,
+                    }));
                   }
                 }}
-                className="w-full px-3 py-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                placeholder="-- ابحث أو اختر المعلم من القائمة --"
+                searchPlaceholder="اكتب اسم المعلم للبحث..."
+                emptyMessage="لا يوجد نتائج مماثلة"
+                noOptionsMessage={
+                  teachers.length === 0
+                    ? "-- جاري تحميل قائمة المعلمين --"
+                    : "-- لا يوجد معلمين مسجلين --"
+                }
                 required
-              >
-                <option value="">-- اختر المعلم من القائمة --</option>
-                {teachers.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {getTeacherLabel(t)} — [
-                    {t.id ? `${String(t.id).slice(0, 8)}...` : ""}]
-                  </option>
-                ))}
-                {teachers.length === 0 && (
-                  <option value="" disabled>
-                    -- جاري تحميل قائمة المعلمين --
-                  </option>
-                )}
-                <option
-                  value="__manual__"
-                  className="text-teal-600 font-bold bg-teal-50"
-                >
-                  ➕ إدخال معرّف المعلم (UUID) يدوياً...
-                </option>
-              </select>
+                onManualSelect={() => {
+                  setUseManualUuid(true);
+                  setEditAssignmentForm((prev) => ({ ...prev, teacher: "" }));
+                }}
+              />
             )}
           </div>
 
@@ -1757,18 +1837,15 @@ export function TeacherManagement() {
                 </button>
               )}
             </div>
-            <select
+            <SearchableSelect
+              options={gradeLevelOptions}
               value={selectedGradeForEdit}
-              onChange={(e) => handleGradeChangeForEdit(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white text-slate-800 focus:ring-2 focus:ring-teal-500 focus:outline-none font-medium shadow-sm"
-            >
-              <option value="">-- اختر الصف لتصفية المواد والشُعب --</option>
-              {derivedGradeLevels.map((gl) => (
-                <option key={gl.id} value={gl.id}>
-                  {gl.name || gl.display_name || gl.title}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => handleGradeChangeForEdit(val)}
+              placeholder="-- اختر الصف لتصفية المواد والشُعب --"
+              searchPlaceholder="اكتب اسم الصف للبحث (مثال: الثاني، السابع)..."
+              emptyMessage="لا يوجد نتائج مماثلة"
+              noOptionsMessage="-- لا توجد صفوف دراسية متاحة --"
+            />
             {activeGradeNameForEdit && (
               <p className="text-[11px] text-teal-700 font-medium">
                 ✓ سيتم عرض شُعب ومواد ({activeGradeNameForEdit}) فقط
@@ -1831,35 +1908,27 @@ export function TeacherManagement() {
                   )}
                 </div>
               ) : (
-                <select
+                <SearchableSelect
+                  options={gradeSubjectOptionsForEdit}
                   value={editAssignmentForm.grade_subject}
-                  onChange={(e) =>
-                    handleGradeSubjectChangeForEdit(e.target.value)
+                  onChange={(val) => handleGradeSubjectChangeForEdit(val)}
+                  placeholder="-- ابحث أو اختر المادة من القائمة --"
+                  searchPlaceholder="اكتب اسم المادة للبحث..."
+                  emptyMessage="لا يوجد نتائج مماثلة"
+                  noOptionsMessage={
+                    selectedGradeForEdit
+                      ? "-- لا توجد مواد مقررة مسجلة لهذا الصف --"
+                      : "-- جاري تحميل قائمة المواد --"
                   }
-                  className="w-full px-3 py-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
                   required
-                >
-                  <option value="">-- اختر المادة من القائمة --</option>
-                  {filteredGradeSubjectsForEdit.map((gs, idx) => (
-                    <option key={gs.id} value={gs.id}>
-                      {getGradeSubjectLabel(gs, idx)} — [
-                      {gs.id ? `${String(gs.id).slice(0, 8)}...` : ""}]
-                    </option>
-                  ))}
-                  {filteredGradeSubjectsForEdit.length === 0 && (
-                    <option value="" disabled>
-                      {selectedGradeForEdit
-                        ? "-- لا توجد مواد مقررة مسجلة لهذا الصف --"
-                        : "-- جاري تحميل قائمة المواد --"}
-                    </option>
-                  )}
-                  <option
-                    value="__manual__"
-                    className="text-teal-600 font-bold bg-teal-50"
-                  >
-                    ➕ إدخال معرّف المادة (UUID) يدوياً...
-                  </option>
-                </select>
+                  onManualSelect={() => {
+                    setUseManualUuid(true);
+                    setEditAssignmentForm((prev) => ({
+                      ...prev,
+                      grade_subject: "",
+                    }));
+                  }}
+                />
               )}
             </div>
 
@@ -1926,49 +1995,31 @@ export function TeacherManagement() {
                   )}
                 </div>
               ) : (
-                <select
+                <SearchableSelect
+                  options={sectionOptionsForEdit}
                   value={editAssignmentForm.section}
-                  onChange={(e) => {
-                    if (e.target.value === "__manual__") {
-                      setUseManualUuid(true);
-                      setEditAssignmentForm({
-                        ...editAssignmentForm,
-                        section: "",
-                      });
-                    } else {
-                      setEditAssignmentForm({
-                        ...editAssignmentForm,
-                        section: e.target.value,
-                      });
-                    }
-                  }}
-                  className="w-full px-3 py-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                  required
-                >
-                  <option value="">
-                    {filteredSectionsForEdit.length === 0 && activeGradeForEdit
+                  onChange={(val) => handleSectionChangeForEdit(val)}
+                  placeholder={
+                    filteredSectionsForEdit.length === 0 && activeGradeForEdit
                       ? "-- لا توجد شُعب مسجلة لهذا الصف --"
-                      : "-- اختر الشعبة من القائمة --"}
-                  </option>
-                  {filteredSectionsForEdit.map((sec, idx) => (
-                    <option key={sec.id} value={sec.id}>
-                      {getSectionLabel(sec, idx)} — [
-                      {sec.id ? `${String(sec.id).slice(0, 8)}...` : ""}]
-                    </option>
-                  ))}
-                  {filteredSectionsForEdit.length === 0 &&
-                    !activeGradeForEdit && (
-                      <option value="" disabled>
-                        -- جاري تحميل قائمة الشُعب --
-                      </option>
-                    )}
-                  <option
-                    value="__manual__"
-                    className="text-teal-600 font-bold bg-teal-50"
-                  >
-                    ➕ إدخال معرّف الشعبة (UUID) يدوياً...
-                  </option>
-                </select>
+                      : "-- ابحث أو اختر الشعبة من القائمة --"
+                  }
+                  searchPlaceholder="اكتب للبحث (مثال: الثاني، شعبة 1)..."
+                  emptyMessage="لا يوجد نتائج مماثلة"
+                  noOptionsMessage={
+                    filteredSectionsForEdit.length === 0 && activeGradeForEdit
+                      ? "-- لا توجد شُعب مسجلة لهذا الصف --"
+                      : "-- جاري تحميل قائمة الشُعب --"
+                  }
+                  required
+                  onManualSelect={() => {
+                    setUseManualUuid(true);
+                    setEditAssignmentForm((prev) => ({
+                      ...prev,
+                      section: "",
+                    }));
+                  }}
+                />
               )}
             </div>
           </div>

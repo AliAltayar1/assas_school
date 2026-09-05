@@ -1,11 +1,8 @@
 // Centralized API Configuration
-// In development, we route through Vite proxy '/api/v1' to prevent browser CORS credential errors.
-// In production or custom env, it points directly to the Render API endpoint.
+// Both in development and production, we route through relative '/api/v1'
+// (Vite dev proxy in development, Vercel rewrites in production)
+// to ensure same-origin requests, eliminating Safari ITP & Incognito cross-site cookie/CSRF issues.
 
 export const API_CONFIG = {
-  BASE_URL:
-    import.meta.env.VITE_API_BASE_URL ||
-    (import.meta.env.DEV
-      ? "/api/v1"
-      : "https://asas-school.onrender.com/api/v1"),
+  BASE_URL: import.meta.env.VITE_API_BASE_URL || "/api/v1",
 };
