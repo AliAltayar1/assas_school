@@ -42,7 +42,12 @@ export const authService = {
   // Fetch current logged in user profile (/auth/web/me/)
   getMe: async () => {
     const res = await axiosInstance.get('/auth/web/me/');
-    return res.data?.data || res.data;
+    const data = res.data?.data || res.data;
+    if (data && res.data?.meta) {
+      data._meta = res.data.meta;
+      data.requester_role = res.data.meta.requester_role;
+    }
+    return data;
   },
 
   // Update personal user profile (first_name, last_name, email)

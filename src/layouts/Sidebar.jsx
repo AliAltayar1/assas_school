@@ -1,6 +1,22 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuthStore } from "../store/useAuthStore";
+import { getHomeRouteForRole, normalizeRole } from "../routes/ProtectedRoute";
+import {
+  ACADEMICS_PERMISSIONS,
+  TEACHING_PERMISSIONS,
+  STUDENT_PERMISSIONS,
+  ATTENDANCE_PERMISSIONS,
+  BEHAVIOR_PERMISSIONS,
+  HOMEWORK_PERMISSIONS,
+  ANNOUNCEMENT_PERMISSIONS,
+  REQUEST_PERMISSIONS,
+  APPOINTMENT_PERMISSIONS,
+  FINANCE_PERMISSIONS,
+  GRADES_PERMISSIONS,
+  AUDIT_LOG_PERMISSIONS,
+  USER_PERMISSIONS,
+} from "../utils/permissionUtils";
 import {
   School,
   Calendar,
@@ -16,197 +32,113 @@ import {
   Users,
   DollarSign,
   FileText,
-  FileSpreadsheet,
 } from "lucide-react";
 
 export function Sidebar() {
-  const { user } = useAuthStore();
+  const { user, hasAnyPermission, requesterRole } = useAuthStore();
   const location = useLocation();
 
-  const roleNavItems = {
-    school_admin: [
-      { path: "/admin", label: "الرئيسية والإحصائيات", icon: School },
-      {
-        path: "/admin/academics",
-        label: "الهيكل الأكاديمي والسنوات",
-        icon: Calendar,
-      },
-      { path: "/admin/users", label: "إدارة الحسابات والموظفين", icon: Users },
-      {
-        path: "/admin/teachers",
-        label: "المعلمين والتكليفات",
-        icon: UserCheck,
-      },
-      {
-        path: "/admin/students",
-        label: "دليل الطلاب والتسجيل",
-        icon: GraduationCap,
-      },
-      {
-        path: "/admin/behavior",
-        label: "الملاحظات السلوكية والتربوية",
-        icon: Award,
-      },
-      {
-        path: "/admin/homework",
-        label: "الواجبات اليومية",
-        icon: ClipboardList,
-      },
-      {
-        path: "/admin/attendance",
-        label: "الحضور والغياب اليومي",
-        icon: CheckCircle,
-      },
-      { path: "/admin/grades", label: "العلامات والتقييمات", icon: BookOpen },
-      {
-        path: "/admin/announcements",
-        label: "الإعلانات العامة",
-        icon: Megaphone,
-      },
-      {
-        path: "/admin/requests",
-        label: "طلبات واستفسارات الأهالي",
-        icon: Inbox,
-      },
-      {
-        path: "/admin/appointments",
-        label: "مواعيد حضور أولياء الأمور",
-        icon: CalendarDays,
-      },
-      {
-        path: "/admin/financials",
-        label: "الرسوم والمالية (USD)",
-        icon: DollarSign,
-      },
-      {
-        path: "/admin/audit-logs",
-        label: "سجل النشاطات Audit Log",
-        icon: FileText,
-      },
-    ],
-    secretariat: [
-      { path: "/secretariat", label: "الرئيسية والإحصائيات", icon: School },
-      {
-        path: "/secretariat/students",
-        label: "إدارة الطلاب وأولياء الأمور",
-        icon: GraduationCap,
-      },
-      {
-        path: "/secretariat/academics",
-        label: "الهيكل الأكاديمي والسنوات",
-        icon: Calendar,
-      },
-      {
-        path: "/secretariat/announcements",
-        label: "الإعلانات والتعاميم",
-        icon: Megaphone,
-      },
-      {
-        path: "/secretariat/requests",
-        label: "طلبات واستفسارات الأهالي",
-        icon: Inbox,
-      },
-      {
-        path: "/secretariat/appointments",
-        label: "مواعيد حضور أولياء الأمور",
-        icon: CalendarDays,
-      },
-      {
-        path: "/secretariat/excel-import",
-        label: "استيراد الطلاب Excel",
-        icon: FileSpreadsheet,
-      },
-      {
-        path: "/secretariat/payments",
-        label: "تسجيل الدفعات المقبوضة",
-        icon: DollarSign,
-      },
-    ],
-    supervisor: [
-      { path: "/supervisor", label: "الرئيسية والتكليفات", icon: School },
-      {
-        path: "/supervisor/attendance",
-        label: "الحضور والغياب اليومي",
-        icon: CheckCircle,
-      },
-      {
-        path: "/supervisor/teaching-assignments",
-        label: "توزيع تكليفات المعلمين",
-        icon: UserCheck,
-      },
-      {
-        path: "/supervisor/students",
-        label: "شؤون الطلاب والتسجيل",
-        icon: GraduationCap,
-      },
-      {
-        path: "/supervisor/academics",
-        label: "الهيكل الأكاديمي والسنوات",
-        icon: Calendar,
-      },
-      {
-        path: "/supervisor/homework",
-        label: "متابعة الواجبات اليومية",
-        icon: ClipboardList,
-      },
-      {
-        path: "/supervisor/announcements",
-        label: "الإعلانات والتعاميم",
-        icon: Megaphone,
-      },
-      {
-        path: "/supervisor/behavior-notes",
-        label: "الملاحظات السلوكية والتربوية",
-        icon: Award,
-      },
-      {
-        path: "/supervisor/requests",
-        label: "الشكاوى والاستفسارات",
-        icon: Inbox,
-      },
-      {
-        path: "/supervisor/grade-approvals",
-        label: "اعتماد العلامات والتقييمات",
-        icon: BookOpen,
-      },
-    ],
-    teacher: [
-      { path: "/teacher", label: "الرئيسية والشعب الدراسية", icon: School },
-      {
-        path: "/teacher/assignments",
-        label: "تكليفاتي الأكاديمية",
-        icon: UserCheck,
-      },
-      {
-        path: "/teacher/students",
-        label: "طلاب الشعب المكلف بها",
-        icon: GraduationCap,
-      },
-      {
-        path: "/teacher/grades",
-        label: "رصد العلامات والتقييمات",
-        icon: BookOpen,
-      },
-      {
-        path: "/teacher/homework",
-        label: "إدارة الواجبات اليومية",
-        icon: ClipboardList,
-      },
-      {
-        path: "/teacher/announcements",
-        label: "الإعلانات والتعاميم",
-        icon: Megaphone,
-      },
-    ],
+  const isSuperuser = Boolean(
+    user?.is_superuser || requesterRole?.code === "superuser"
+  );
+  const rawRole = user?.role || user?.role_code || user?.role_name || "";
+  const currentRole = normalizeRole(rawRole);
+  const basePath = getHomeRouteForRole(user);
+
+  // 1. Overview Item based on current role space (Dashboard Overview preserved)
+  const overviewLabels = {
+    school_admin: "الرئيسية والإحصائيات",
+    secretariat: "الرئيسية والإحصائيات",
+    supervisor: "الرئيسية والتكليفات",
+    teacher: "الرئيسية والشعب الدراسية",
   };
 
-  const currentRole = (
-    user?.role ||
-    user?.role_code ||
-    user?.role_name ||
-    "school_admin"
-  ).toLowerCase();
-  const navItems = roleNavItems[currentRole] || roleNavItems.school_admin;
+  const navItems = [
+    {
+      path: basePath,
+      label: overviewLabels[currentRole] || "الرئيسية والإحصائيات",
+      icon: School,
+      show: true,
+    },
+    {
+      path: `${basePath}/students`,
+      label: currentRole === "teacher" ? "طلاب الشعب المكلف بها" : "دليل الطلاب والتسجيل",
+      icon: GraduationCap,
+      show: isSuperuser || hasAnyPermission(STUDENT_PERMISSIONS),
+    },
+    {
+      path: `${basePath}/academics`,
+      label: "الهيكل الأكاديمي والسنوات",
+      icon: Calendar,
+      show: isSuperuser || hasAnyPermission(ACADEMICS_PERMISSIONS),
+    },
+    {
+      path: `${basePath}/users`,
+      label: "إدارة الحسابات والموظفين",
+      icon: Users,
+      show: isSuperuser || hasAnyPermission(USER_PERMISSIONS),
+    },
+    {
+      path: currentRole === "teacher" ? `${basePath}/assignments` : `${basePath}/teachers`,
+      label: currentRole === "teacher" ? "تكليفاتي الأكاديمية" : "المعلمين والتكليفات",
+      icon: UserCheck,
+      show: isSuperuser || hasAnyPermission(TEACHING_PERMISSIONS),
+    },
+    {
+      path: `${basePath}/attendance`,
+      label: "الحضور والغياب اليومي",
+      icon: CheckCircle,
+      show: isSuperuser || hasAnyPermission(ATTENDANCE_PERMISSIONS),
+    },
+    {
+      path: `${basePath}/grades`,
+      label: currentRole === "teacher" ? "رصد العلامات والتقييمات" : "العلامات والتقييمات",
+      icon: BookOpen,
+      show: isSuperuser || hasAnyPermission(GRADES_PERMISSIONS),
+    },
+    {
+      path: `${basePath}/homework`,
+      label: currentRole === "teacher" ? "إدارة الواجبات اليومية" : "الواجبات اليومية",
+      icon: ClipboardList,
+      show: isSuperuser || hasAnyPermission(HOMEWORK_PERMISSIONS),
+    },
+    {
+      path: `${basePath}/behavior`,
+      label: "الملاحظات السلوكية والتربوية",
+      icon: Award,
+      show: isSuperuser || hasAnyPermission(BEHAVIOR_PERMISSIONS),
+    },
+    {
+      path: `${basePath}/announcements`,
+      label: "الإعلانات العامة والتعاميم",
+      icon: Megaphone,
+      show: isSuperuser || hasAnyPermission(ANNOUNCEMENT_PERMISSIONS),
+    },
+    {
+      path: `${basePath}/requests`,
+      label: "طلبات واستفسارات الأهالي",
+      icon: Inbox,
+      show: isSuperuser || hasAnyPermission(REQUEST_PERMISSIONS),
+    },
+    {
+      path: `${basePath}/appointments`,
+      label: "مواعيد حضور أولياء الأمور",
+      icon: CalendarDays,
+      show: isSuperuser || hasAnyPermission(APPOINTMENT_PERMISSIONS),
+    },
+    {
+      path: `${basePath}/financials`,
+      label: "الرسوم والمالية (USD)",
+      icon: DollarSign,
+      show: isSuperuser || hasAnyPermission(FINANCE_PERMISSIONS),
+    },
+    {
+      path: `${basePath}/audit-logs`,
+      label: "سجل النشاطات Audit Log",
+      icon: FileText,
+      show: isSuperuser || hasAnyPermission(AUDIT_LOG_PERMISSIONS),
+    },
+  ].filter((item) => item.show);
 
   return (
     <aside className="w-full lg:w-64 flex-shrink-0 bg-white rounded-2xl shadow-sm border border-slate-200 p-2.5 sm:p-4 h-fit lg:sticky lg:top-20">
@@ -215,15 +147,8 @@ export function Sidebar() {
           const Icon = item.icon;
           const isActive =
             location.pathname === item.path ||
-            (item.path === "/admin" &&
-              location.pathname === "/admin/statistics") ||
-            (item.path === "/secretariat" &&
-              location.pathname === "/secretariat/statistics") ||
-            (item.path !== "/admin" &&
-              item.path !== "/secretariat" &&
-              item.path !== "/supervisor" &&
-              item.path !== "/teacher" &&
-              location.pathname.startsWith(item.path));
+            (item.path === basePath && location.pathname === `${basePath}/statistics`) ||
+            (item.path !== basePath && location.pathname.startsWith(item.path));
 
           return (
             <Link

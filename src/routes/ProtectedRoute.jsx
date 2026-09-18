@@ -17,16 +17,42 @@ export function normalizeRole(role) {
   return clean;
 }
 
-export function ProtectedRoute({ allowedRoles = [] }) {
-  const { isAuthenticated, isLoading, mustChangePassword, user } = useAuthStore();
+export function getHomeRouteForRole(userObj) {
+  const rawRole = userObj?.role || userObj?.role_code || userObj?.role_name || "";
+  const role = normalizeRole(rawRole);
+  if (role === "school_admin") return "/admin";
+  if (role === "secretariat") return "/secretariat";
+  if (role === "supervisor") return "/supervisor";
+  if (role === "teacher") return "/teacher";
+  return "/admin";
+}
+
+export function ProtectedRoute({
+  allowedRoles = [],
+  requiredPermissions = [],
+  requiredAnyPermission = [],
+}) {
+  const {
+    isAuthenticated,
+    isLoading,
+    mustChangePassword,
+    user,
+    requesterRole,
+    permissions,
+  } = useAuthStore();
   const location = useLocation();
 
   // 1. App initialization loading state
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white dir-rtl" dir="rtl">
+      <div
+        className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white dir-rtl"
+        dir="rtl"
+      >
         <Loader2 className="w-10 h-10 text-teal-400 animate-spin mb-4" />
-        <p className="text-sm font-medium text-slate-300">جاري التحقق من الجلسة والصلاحيات...</p>
+        <p className="text-sm font-medium text-slate-300">
+          جاري التحقق من الجلسة والصلاحيات...
+        </p>
       </div>
     );
   }
@@ -37,37 +63,54 @@ export function ProtectedRoute({ allowedRoles = [] }) {
   }
 
   // 3. Forced Temporary Password Change Flow Enforcement
-  if (mustChangePassword && location.pathname !== '/change-password') {
+  if (mustChangePassword && location.pathname !== "/change-password") {
     return <Navigate to="/change-password" replace />;
   }
 
-  // 4. Role Authorization Check
+  // 4. Superuser Full Bypass
+  const isSuperuser = Boolean(
+    user?.is_superuser || requesterRole?.code === "superuser"
+  );
+  if (isSuperuser) {
+    return <Outlet />;
+  }
+
+  const userPerms = Array.isArray(permissions) ? permissions : [];
+  const homeRoute = getHomeRouteForRole(user);
+
+  // 5. Check All Required Permissions
+  if (requiredPermissions.length > 0) {
+    const hasAll = requiredPermissions.every((perm) =>
+      userPerms.includes(perm)
+    );
+    if (!hasAll) {
+      if (location.pathname === homeRoute) return <Outlet />;
+      return <Navigate to={homeRoute} replace />;
+    }
+  }
+
+  // 6. Check Any Required Permission
+  if (requiredAnyPermission.length > 0) {
+    const hasAny = requiredAnyPermission.some((perm) =>
+      userPerms.includes(perm)
+    );
+    if (!hasAny) {
+      if (location.pathname === homeRoute) return <Outlet />;
+      return <Navigate to={homeRoute} replace />;
+    }
+  }
+
+  // 7. Role Authorization Check (For specific Overviews like Dashboard Overview)
   if (allowedRoles.length > 0 && user) {
-    const rawRole = user.role || user.role_code || user.role_name || '';
+    const rawRole = user.role || user.role_code || user.role_name || "";
     const userRole = normalizeRole(rawRole);
     const normalizedAllowed = allowedRoles.map(normalizeRole);
 
-    // If user is school_admin, allow full administrative access
-    if (userRole === 'school_admin') {
-      return <Outlet />;
-    }
-
     if (userRole && !normalizedAllowed.includes(userRole)) {
-      const roleRoutes = {
-        school_admin: '/admin',
-        secretariat: '/secretariat',
-        supervisor: '/supervisor',
-        teacher: '/teacher',
-      };
-
-      const redirectPath = roleRoutes[userRole] || '/admin';
-
-      // Avoid infinite redirect loop
-      if (location.pathname === redirectPath) {
+      if (location.pathname === homeRoute) {
         return <Outlet />;
       }
-
-      return <Navigate to={redirectPath} replace />;
+      return <Navigate to={homeRoute} replace />;
     }
   }
 

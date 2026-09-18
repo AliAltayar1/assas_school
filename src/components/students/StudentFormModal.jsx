@@ -3,16 +3,20 @@ import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { Alert } from "../ui/Alert";
 import { getFieldErrors, parseApiError } from "../../utils/errorUtils";
+import { HeartPulse } from "lucide-react";
 
 export function StudentFormModal({
   isOpen,
   onClose,
   onSubmit,
   initialStudent = null,
+  onOpenHealthProfile = null,
 }) {
   const [formData, setFormData] = useState({
     first_name: "",
     last_name: "",
+    first_name_en: "",
+    last_name_en: "",
     father_name: "",
     mother_name: "",
     birth_date: "",
@@ -28,6 +32,8 @@ export function StudentFormModal({
       setFormData({
         first_name: initialStudent.first_name || "",
         last_name: initialStudent.last_name || "",
+        first_name_en: initialStudent.first_name_en || "",
+        last_name_en: initialStudent.last_name_en || "",
         father_name: initialStudent.father_name || "",
         mother_name: initialStudent.mother_name || "",
         birth_date: initialStudent.birth_date || "",
@@ -37,6 +43,8 @@ export function StudentFormModal({
       setFormData({
         first_name: "",
         last_name: "",
+        first_name_en: "",
+        last_name_en: "",
         father_name: "",
         mother_name: "",
         birth_date: "",
@@ -149,6 +157,58 @@ export function StudentFormModal({
             )}
           </div>
         </div>
+
+        {/* English Names */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">
+              الاسم الأول (بالإنكليزية)
+              <span className="text-[10px] text-slate-400 font-normal mr-1">(اختياري)</span>
+            </label>
+            <input
+              type="text"
+              name="first_name_en"
+              placeholder="مثال: Ahmad"
+              value={formData.first_name_en}
+              onChange={handleChange}
+              className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 dir-ltr text-right"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">
+              اسم العائلة (بالإنكليزية)
+              <span className="text-[10px] text-slate-400 font-normal mr-1">(اختياري)</span>
+            </label>
+            <input
+              type="text"
+              name="last_name_en"
+              placeholder="مثال: Al-Ali"
+              value={formData.last_name_en}
+              onChange={handleChange}
+              className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 dir-ltr text-right"
+            />
+          </div>
+        </div>
+
+        {initialStudent && onOpenHealthProfile && (
+          <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl flex items-center justify-between">
+            <div className="flex items-center gap-2 text-teal-800 text-xs font-bold">
+              <HeartPulse className="w-4 h-4 text-teal-600" />
+              <span>الملف الصحي للطالب</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenHealthProfile(initialStudent);
+              }}
+              className="text-xs text-teal-700 hover:text-teal-900 underline font-semibold"
+            >
+              عرض وتعديل الملف الصحي &larr;
+            </button>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* Father Name */}

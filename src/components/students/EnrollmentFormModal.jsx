@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { Alert } from "../ui/Alert";
+import { SearchableSelect } from "../ui/SearchableSelect";
 import { getFieldErrors, parseApiError } from "../../utils/errorUtils";
 
 export function EnrollmentFormModal({
@@ -25,7 +26,7 @@ export function EnrollmentFormModal({
   const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
-    if (initialEnrollment) {
+    if (initialEnrollment?.id) {
       setFormData({
         student:
           typeof initialEnrollment.student === "object"
@@ -45,9 +46,9 @@ export function EnrollmentFormModal({
       });
     } else {
       setFormData({
-        student: students[0]?.id || "",
-        academic_year: years[0]?.id || "",
-        section: sections[0]?.id || "",
+        student: initialEnrollment?.student || students[0]?.id || "",
+        academic_year: initialEnrollment?.academic_year || years[0]?.id || "",
+        section: initialEnrollment?.section || sections[0]?.id || "",
         enrollment_date: new Date().toISOString().split("T")[0],
       });
     }
@@ -67,6 +68,33 @@ export function EnrollmentFormModal({
     }
   };
 
+  // Ensure the target student is available in the dropdown even if students list is still loading
+  const availableStudents = React.useMemo(() => {
+    if (
+      initialEnrollment?.student &&
+      !students.some((s) => s.id === initialEnrollment.student)
+    ) {
+      return [
+        {
+          id: initialEnrollment.student,
+          full_name: initialEnrollment.student_display || "الطالب المسجل حديثاً",
+          father_name: initialEnrollment.father_name || "",
+        },
+        ...students,
+      ];
+    }
+    return students;
+  }, [students, initialEnrollment]);
+
+  // Options for SearchableSelect
+  const studentOptions = React.useMemo(() => {
+    return availableStudents.map((st) => ({
+      value: st.id,
+      label: st.full_name || `${st.first_name || ""} ${st.last_name || ""}`.trim() || st.id,
+      subtext: st.father_name ? `اسم الأب: ${st.father_name}` : "",
+    }));
+  }, [availableStudents]);
+
   // Filter sections by selected academic year if selected
   const filteredSections = formData.academic_year
     ? sections.filter((s) => {
@@ -75,6 +103,14 @@ export function EnrollmentFormModal({
         return !secYearId || secYearId === formData.academic_year;
       })
     : sections;
+
+  const sectionOptions = React.useMemo(() => {
+    return filteredSections.map((sec) => ({
+      value: sec.id,
+      label: `شعبة (${sec.name}) - ${sec.grade_level_display || sec.grade_level_name || "الصف"}`,
+      subtext: sec.academic_year_display || sec.academic_year?.name || "",
+    }));
+  }, [filteredSections]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -103,7 +139,7 @@ export function EnrollmentFormModal({
     <Modal
       isOpen={isOpen}
       onClose={isSubmitting ? () => {} : onClose}
-      title={initialEnrollment ? "تعديل تسجيل الطالب" : "تسجيل طالب جديد في شعبة"}
+      title={initialEnrollment?.id ? "تعديل تسجيل الطالب" : "تسجيل طالب جديد في شعبة"}
       maxWidth="max-w-lg"
     >
       <form onSubmit={handleSubmit} className="space-y-4 text-right dir-rtl" dir="rtl">
@@ -114,25 +150,30 @@ export function EnrollmentFormModal({
           <label className="block text-xs font-bold text-slate-700 mb-1">
             الطالب المستهدف <span className="text-rose-500">*</span>
           </label>
-          <select
-            name="student"
-            required
+          <SearchableSelect
+            options={studentOptions}
             value={formData.student}
-            onChange={handleChange}
-            disabled={!!initialEnrollment}
-            className={`w-full px-3 py-2 bg-white border rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 ${
+            onChange={(val) => {
+              setFormData((prev) => ({ ...prev, student: val }));
+              if (fieldErrors.student) {
+                setFieldErrors((prev) => {
+                  const next = { ...prev };
+                  delete next.student;
+                  return next;
+                });
+              }
+            }}
+            disabled={Boolean(initialEnrollment?.id)}
+            placeholder="-- اختر الطالب (اكتب للبحث السريع) --"
+            searchPlaceholder="اكتب اسم الطالب للبحث..."
+            emptyMessage="لا يوجد طلاب مطابقين للبحث"
+            noOptionsMessage="-- لا يوجد طلاب متاحين --"
+            inputClassName={
               fieldErrors.student
                 ? "border-rose-400 focus:ring-rose-400"
                 : "border-slate-300 focus:ring-teal-500"
-            }`}
-          >
-            <option value="">-- اختر الطالب --</option>
-            {students.map((st) => (
-              <option key={st.id} value={st.id}>
-                {st.full_name || `${st.first_name} ${st.last_name}`} (الأب: {st.father_name || "-"})
-              </option>
-            ))}
-          </select>
+            }
+          />
           {fieldErrors.student && (
             <p className="text-[11px] text-rose-600 mt-1">{fieldErrors.student}</p>
           )}
@@ -171,24 +212,29 @@ export function EnrollmentFormModal({
           <label className="block text-xs font-bold text-slate-700 mb-1">
             الشعبة والصف الدراسي <span className="text-rose-500">*</span>
           </label>
-          <select
-            name="section"
-            required
+          <SearchableSelect
+            options={sectionOptions}
             value={formData.section}
-            onChange={handleChange}
-            className={`w-full px-3 py-2 bg-white border rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 ${
+            onChange={(val) => {
+              setFormData((prev) => ({ ...prev, section: val }));
+              if (fieldErrors.section) {
+                setFieldErrors((prev) => {
+                  const next = { ...prev };
+                  delete next.section;
+                  return next;
+                });
+              }
+            }}
+            placeholder="-- اختر الشعبة (اكتب للبحث السريع) --"
+            searchPlaceholder="اكتب اسم الشعبة أو الصف للبحث..."
+            emptyMessage="لا توجد شعب مطابقة للبحث"
+            noOptionsMessage="-- لا توجد شعب متاحة لهذا العام --"
+            inputClassName={
               fieldErrors.section
                 ? "border-rose-400 focus:ring-rose-400"
                 : "border-slate-300 focus:ring-teal-500"
-            }`}
-          >
-            <option value="">-- اختر الشعبة --</option>
-            {filteredSections.map((sec) => (
-              <option key={sec.id} value={sec.id}>
-                شعبة ({sec.name}) - {sec.grade_level_display || sec.grade_level_name || "الصف"}
-              </option>
-            ))}
-          </select>
+            }
+          />
           {fieldErrors.section && (
             <p className="text-[11px] text-rose-600 mt-1">{fieldErrors.section}</p>
           )}
@@ -231,7 +277,7 @@ export function EnrollmentFormModal({
           <Button type="submit" size="sm" disabled={isSubmitting}>
             {isSubmitting
               ? "جاري الحفظ..."
-              : initialEnrollment
+              : initialEnrollment?.id
               ? "حفظ التعديل"
               : "إتمام تسجيل الطالب"}
           </Button>

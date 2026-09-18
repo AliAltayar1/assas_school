@@ -4,6 +4,7 @@ import { Button } from "../ui/Button";
 import { Alert } from "../ui/Alert";
 import { ArrowLeftRight, School, User, Calendar, BookOpen, AlertCircle } from "lucide-react";
 import { getFieldErrors, parseApiError } from "../../utils/errorUtils";
+import { SearchableSelect } from "../ui/SearchableSelect";
 
 export function TransferModal({
   isOpen,
@@ -50,6 +51,14 @@ export function TransferModal({
 
     return true;
   });
+
+  const targetSectionOptions = React.useMemo(() => {
+    return availableTargetSections.map((sec) => ({
+      value: sec.id,
+      label: `شعبة (${sec.name}) - ${sec.grade_level_display || "الصف الدراسي"}`,
+      subtext: sec.academic_year_display || sec.academic_year?.name || "",
+    }));
+  }, [availableTargetSections]);
 
   useEffect(() => {
     if (availableTargetSections.length > 0) {
@@ -149,26 +158,23 @@ export function TransferModal({
               <span>لا توجد شعب أخرى متاحة في نفس العام والصف الدراسي لنقل الطالب إليها.</span>
             </div>
           ) : (
-            <select
-              required
+            <SearchableSelect
+              options={targetSectionOptions}
               value={targetSectionId}
-              onChange={(e) => {
-                setTargetSectionId(e.target.value);
+              onChange={(val) => {
+                setTargetSectionId(val);
                 setFieldErrors({});
               }}
-              className={`w-full px-3 py-2.5 bg-white border rounded-xl text-xs font-bold focus:outline-none focus:ring-2 ${
+              placeholder="-- اختر الشعبة الجديدة (اكتب للبحث السريع) --"
+              searchPlaceholder="اكتب اسم الشعبة للبحث..."
+              emptyMessage="لا توجد شعب مطابقة للبحث"
+              noOptionsMessage="-- لا توجد شعب متاحة لهذا الصف --"
+              inputClassName={
                 fieldErrors.section
                   ? "border-rose-400 focus:ring-rose-400"
                   : "border-slate-300 focus:ring-teal-500"
-              }`}
-            >
-              <option value="">-- اختر الشعبة الجديدة --</option>
-              {availableTargetSections.map((sec) => (
-                <option key={sec.id} value={sec.id}>
-                  شعبة ({sec.name}) - {sec.grade_level_display || "الصف الدراسي"}
-                </option>
-              ))}
-            </select>
+              }
+            />
           )}
           {fieldErrors.section && (
             <p className="text-[11px] text-rose-600 mt-1">{fieldErrors.section}</p>

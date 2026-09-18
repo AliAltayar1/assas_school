@@ -24,7 +24,10 @@ import {
 } from "lucide-react";
 
 export function TeacherManagement() {
-  const { user } = useAuthStore();
+  const { hasPermission } = useAuthStore();
+  const canAdd = hasPermission("teaching.add_teacherassignment");
+  const canChange = hasPermission("teaching.change_teacherassignment");
+  const canDelete = hasPermission("teaching.delete_teacherassignment");
 
   // Data states
   const [assignments, setAssignments] = useState([]);
@@ -901,14 +904,16 @@ export function TeacherManagement() {
             </div>
           )}
 
-          <Button
-            size="sm"
-            onClick={handleOpenCreate}
-            className="gap-1.5 text-xs h-8 sm:h-9"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>إضافة تكليف</span>
-          </Button>
+          {canAdd && (
+            <Button
+              size="sm"
+              onClick={handleOpenCreate}
+              className="gap-1.5 text-xs h-8 sm:h-9"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>إضافة تكليف</span>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -934,13 +939,15 @@ export function TeacherManagement() {
                 قم بربط المعلمين بالمواد المقررة والشعب الدراسية لتنظيم جدول
                 الحصص والخطط الدراسية.
               </p>
-              <Button
-                onClick={handleOpenCreate}
-                className="gap-2 mt-2 font-bold shadow-sm"
-              >
-                <Plus className="w-4 h-4" />
-                <span>إسناد تكليف جديد للمعلم الآن</span>
-              </Button>
+              {canAdd && (
+                <Button
+                  onClick={handleOpenCreate}
+                  className="gap-2 mt-2 font-bold shadow-sm"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>إسناد تكليف جديد للمعلم الآن</span>
+                </Button>
+              )}
             </div>
           </div>
         ) : (
@@ -957,9 +964,11 @@ export function TeacherManagement() {
                     <th className="p-3.5 whitespace-nowrap">فترة التكليف</th>
                     <th className="p-3.5 whitespace-nowrap">الحالة</th>
                     <th className="p-3.5 whitespace-nowrap">تاريخ التحديث</th>
-                    <th className="p-3.5 text-center whitespace-nowrap">
-                      الإجراءات
-                    </th>
+                    {(canChange || canDelete) && (
+                      <th className="p-3.5 text-center whitespace-nowrap">
+                        الإجراءات
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1093,33 +1102,39 @@ export function TeacherManagement() {
                       </td>
 
                       {/* Actions */}
-                      <td className="p-3.5 text-center whitespace-nowrap">
-                        <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
-                          <button
-                            onClick={() => handleOpenEdit(row)}
-                            className="flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap shrink-0"
-                            title="تعديل بيانات التكليف"
-                          >
-                            <Edit2 className="w-3.5 h-3.5 shrink-0" />
-                            <span className="whitespace-nowrap">تعديل</span>
-                          </button>
+                      {(canChange || canDelete) && (
+                        <td className="p-3.5 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
+                            {canChange && (
+                              <button
+                                onClick={() => handleOpenEdit(row)}
+                                className="flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                                title="تعديل بيانات التكليف"
+                              >
+                                <Edit2 className="w-3.5 h-3.5 shrink-0" />
+                                <span className="whitespace-nowrap">تعديل</span>
+                              </button>
+                            )}
 
-                          <button
-                            onClick={() => handleOpenEnd(row)}
-                            className={`flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg transition-colors border whitespace-nowrap shrink-0 ${
-                              row.end_date
-                                ? "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300"
-                                : "bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200"
-                            }`}
-                            title="إنهاء التكليف وتحديد تاريخ النهاية"
-                          >
-                            <StopCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                            <span className="whitespace-nowrap">
-                              {row.end_date ? "تعديل النهاية" : "إنهاء"}
-                            </span>
-                          </button>
-                        </div>
-                      </td>
+                            {canChange && (
+                              <button
+                                onClick={() => handleOpenEnd(row)}
+                                className={`flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg transition-colors border whitespace-nowrap shrink-0 ${
+                                  row.end_date
+                                    ? "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300"
+                                    : "bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200"
+                                }`}
+                                title="إنهاء التكليف وتحديد تاريخ النهاية"
+                              >
+                                <StopCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                <span className="whitespace-nowrap">
+                                  {row.end_date ? "تعديل النهاية" : "إنهاء"}
+                                </span>
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -1215,29 +1230,35 @@ export function TeacherManagement() {
                   </div>
 
                   {/* Card Action Buttons */}
-                  <div className="flex items-center gap-2 pt-1">
-                    <button
-                      onClick={() => handleOpenEdit(row)}
-                      className="flex-1 flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold py-2 px-3 rounded-xl transition-colors border border-slate-200/60"
-                    >
-                      <Edit2 className="w-3.5 h-3.5 text-slate-600" />
-                      <span>تعديل التكليف</span>
-                    </button>
+                  {(canChange || canDelete) && (
+                    <div className="flex items-center gap-2 pt-1">
+                      {canChange && (
+                        <button
+                          onClick={() => handleOpenEdit(row)}
+                          className="flex-1 flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold py-2 px-3 rounded-xl transition-colors border border-slate-200/60"
+                        >
+                          <Edit2 className="w-3.5 h-3.5 text-slate-600" />
+                          <span>تعديل التكليف</span>
+                        </button>
+                      )}
 
-                    <button
-                      onClick={() => handleOpenEnd(row)}
-                      className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-bold py-2 px-3 rounded-xl transition-colors border ${
-                        row.end_date
-                          ? "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200"
-                          : "bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200"
-                      }`}
-                    >
-                      <StopCircle className="w-3.5 h-3.5 text-amber-600" />
-                      <span>
-                        {row.end_date ? "تعديل النهاية" : "إنهاء التكليف"}
-                      </span>
-                    </button>
-                  </div>
+                      {canChange && (
+                        <button
+                          onClick={() => handleOpenEnd(row)}
+                          className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-bold py-2 px-3 rounded-xl transition-colors border ${
+                            row.end_date
+                              ? "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200"
+                              : "bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200"
+                          }`}
+                        >
+                          <StopCircle className="w-3.5 h-3.5 text-amber-600" />
+                          <span>
+                            {row.end_date ? "تعديل النهاية" : "إنهاء التكليف"}
+                          </span>
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

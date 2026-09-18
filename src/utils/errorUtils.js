@@ -18,13 +18,24 @@ export const FIELD_LABELS = {
   new_password_confirm: "تأكيد كلمة المرور الجديدة",
   first_name: "الاسم الأول",
   last_name: "اسم العائلة",
+  first_name_en: "الاسم الأول (بالإنكليزية)",
+  last_name_en: "اسم العائلة (بالإنكليزية)",
   father_name: "اسم الأب",
   mother_name: "اسم الأم",
   birth_date: "تاريخ الميلاد",
   gender: "الجنس",
   phone: "رقم الهاتف",
+  phone_number: "رقم الهاتف",
   address: "العنوان",
   national_id: "الرقم الوطني / الهوية",
+  blood_type: "زمرة الدم",
+  chronic_diseases: "الأمراض المزمنة",
+  allergies: "الحساسية",
+  permanent_medications: "الأدوية الدائمة",
+  special_health_needs: "الاحتياجات الصحية الخاصة",
+  emergency_contact_name: "اسم جهة اتصال الطوارئ",
+  emergency_contact_phone: "هاتف جهة اتصال الطوارئ",
+  health_notes: "ملاحظات صحية",
   role: "الدور الوظيفي",
   academic_year: "السنة الدراسية",
   term: "الفصل الدراسي",
@@ -296,11 +307,35 @@ export function getFieldErrors(error) {
 
   const fieldErrors = {};
 
-  for (const [key, value] of Object.entries(source)) {
-    if (!META_KEYS.has(key)) {
-      fieldErrors[key] = extractValueText(value);
+  const processEntries = (obj, prefix = "") => {
+    for (const [key, value] of Object.entries(obj)) {
+      if (META_KEYS.has(key)) continue;
+
+      const pathKey = prefix ? `${prefix}.${key}` : key;
+
+      if (
+        value &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        !value.message &&
+        !value.detail
+      ) {
+        // Recurse into nested dictionary
+        processEntries(value, pathKey);
+      } else {
+        const text = extractValueText(value);
+        if (text) {
+          fieldErrors[pathKey] = text;
+          // Also set bare key if not already defined for easy access
+          if (!fieldErrors[key]) {
+            fieldErrors[key] = text;
+          }
+        }
+      }
     }
-  }
+  };
+
+  processEntries(source);
 
   return fieldErrors;
 }

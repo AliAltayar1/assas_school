@@ -39,7 +39,11 @@ import {
 } from "lucide-react";
 
 export function AnnouncementManagement() {
-  const { user } = useAuthStore();
+  const { user, hasPermission } = useAuthStore();
+  const canAddAnnouncement = hasPermission("announcements.add_announcement");
+  const canChangeAnnouncement = hasPermission("announcements.change_announcement");
+  const canDeleteAnnouncement = hasPermission("announcements.delete_announcement");
+  const canManageAnnouncements = canAddAnnouncement || canChangeAnnouncement || canDeleteAnnouncement;
 
   // Role permissions check
   const rawRole = (
@@ -50,14 +54,6 @@ export function AnnouncementManagement() {
   ).toLowerCase();
 
   const isTeacher = rawRole === "teacher";
-  const canManageAnnouncements = [
-    "school_admin",
-    "admin",
-    "supervisor",
-    "educational_supervisor",
-    "secretariat",
-    "secretary",
-  ].includes(rawRole);
 
   // Raw & Processed data states
   const [announcements, setAnnouncements] = useState([]);
@@ -697,7 +693,7 @@ export function AnnouncementManagement() {
             />
           </Button>
 
-          {canManageAnnouncements && (
+          {canAddAnnouncement && (
             <Button
               onClick={handleOpenCreate}
               className="gap-1.5 text-xs font-bold h-9 px-3.5 shadow-sm"
@@ -1002,7 +998,7 @@ export function AnnouncementManagement() {
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>إعادة تعيين الفلاتر</span>
                 </Button>
-              ) : canManageAnnouncements ? (
+              ) : canAddAnnouncement ? (
                 <Button
                   onClick={handleOpenCreate}
                   className="gap-2 mt-2 font-bold shadow-sm"
@@ -1129,24 +1125,24 @@ export function AnnouncementManagement() {
                             <Eye className="w-4 h-4" />
                           </button>
 
-                          {canManageAnnouncements && (
-                            <>
-                              <button
-                                onClick={() => handleOpenEdit(row)}
-                                className="p-1.5 text-slate-600 hover:text-blue-700 hover:bg-slate-100 rounded-lg transition-colors"
-                                title="تعديل الإعلان"
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
+                          {canChangeAnnouncement && (
+                            <button
+                              onClick={() => handleOpenEdit(row)}
+                              className="p-1.5 text-slate-600 hover:text-blue-700 hover:bg-slate-100 rounded-lg transition-colors"
+                              title="تعديل الإعلان"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                          )}
 
-                              <button
-                                onClick={() => handleOpenDelete(row)}
-                                className="p-1.5 text-slate-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
-                                title="حذف الإعلان"
-                              >
-                                <Trash2 className="w-4 h-4 text-rose-500" />
-                              </button>
-                            </>
+                          {canDeleteAnnouncement && (
+                            <button
+                              onClick={() => handleOpenDelete(row)}
+                              className="p-1.5 text-slate-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
+                              title="حذف الإعلان"
+                            >
+                              <Trash2 className="w-4 h-4 text-rose-500" />
+                            </button>
                           )}
                         </div>
                       </td>
@@ -1224,24 +1220,24 @@ export function AnnouncementManagement() {
                       <span>قراءة كاملة</span>
                     </button>
 
-                    {canManageAnnouncements && (
-                      <>
-                        <button
-                          onClick={() => handleOpenEdit(row)}
-                          className="flex-1 flex items-center justify-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 text-xs font-bold py-2 px-3 rounded-xl transition-colors border border-blue-200"
-                        >
-                          <Edit2 className="w-3.5 h-3.5 text-blue-600" />
-                          <span>تعديل</span>
-                        </button>
+                    {canChangeAnnouncement && (
+                      <button
+                        onClick={() => handleOpenEdit(row)}
+                        className="flex-1 flex items-center justify-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 text-xs font-bold py-2 px-3 rounded-xl transition-colors border border-blue-200"
+                      >
+                        <Edit2 className="w-3.5 h-3.5 text-blue-600" />
+                        <span>تعديل</span>
+                      </button>
+                    )}
 
-                        <button
-                          onClick={() => handleOpenDelete(row)}
-                          className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl transition-colors border border-rose-200"
-                          title="حذف الإعلان"
-                        >
-                          <Trash2 className="w-4 h-4 text-rose-600" />
-                        </button>
-                      </>
+                    {canDeleteAnnouncement && (
+                      <button
+                        onClick={() => handleOpenDelete(row)}
+                        className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl transition-colors border border-rose-200"
+                        title="حذف الإعلان"
+                      >
+                        <Trash2 className="w-4 h-4 text-rose-600" />
+                      </button>
                     )}
                   </div>
                 </div>

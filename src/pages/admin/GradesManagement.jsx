@@ -8,12 +8,6 @@ import { Pagination } from "../../components/ui/Pagination";
 import { toast } from "sonner";
 import { parseApiError, extractPaginatedList } from "../../utils/errorUtils";
 import {
-  canAccessGrades,
-  canPublishGrades,
-  canCreateAssessmentForGrade,
-  isTeacher,
-} from "../../utils/permissionUtils";
-import {
   BookOpen,
   Plus,
   RefreshCw,
@@ -37,12 +31,30 @@ import {
 } from "lucide-react";
 
 export function GradesManagement() {
-  const { user } = useAuthStore();
+  const { user, hasPermission, hasAnyPermission, isSuperuser } = useAuthStore();
 
-  const isUserTeacher = isTeacher(user);
-  const hasPublishAccess = canPublishGrades(user);
-  const hasGradeCreateAccess = canCreateAssessmentForGrade(user);
-  const hasGeneralAccess = canAccessGrades(user);
+  const canAddAssessment =
+    hasPermission("grades.add_assessment") || isSuperuser;
+  const canChangeAssessment =
+    hasPermission("grades.change_assessment") || isSuperuser;
+  const canDeleteAssessment =
+    hasPermission("grades.delete_assessment") || isSuperuser;
+  const canCreateGradeWide =
+    hasPermission("grades.create_grade_wide_assessment") || isSuperuser;
+  const canChangeScore =
+    hasPermission("grades.change_studentscore") || isSuperuser;
+  const canPublish =
+    hasPermission("grades.publish_grades") || isSuperuser;
+  const hasGeneralAccess =
+    hasAnyPermission([
+      "grades.view_assessment",
+      "grades.add_assessment",
+      "grades.change_assessment",
+      "grades.delete_assessment",
+      "grades.create_grade_wide_assessment",
+      "grades.change_studentscore",
+      "grades.publish_grades",
+    ]) || isSuperuser;
 
   // Academics Structure Data
   const [academicYears, setAcademicYears] = useState([]);
@@ -748,15 +760,17 @@ export function GradesManagement() {
 
         {/* Actions */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-          <Button
-            onClick={() => handleOpenCreateModal("single")}
-            className="bg-teal-600 hover:bg-teal-500 hover:bg-teal-50 font-black px-4 py-2.5 rounded-xl shadow-md text-xs sm:text-sm flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4 text-teal-700" />
-            <span>تقييم لشعبة</span>
-          </Button>
+          {canAddAssessment && (
+            <Button
+              onClick={() => handleOpenCreateModal("single")}
+              className="bg-teal-600 hover:bg-teal-500 hover:bg-teal-50 font-black px-4 py-2.5 rounded-xl shadow-md text-xs sm:text-sm flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4 text-teal-700" />
+              <span>تقييم لشعبة</span>
+            </Button>
+          )}
 
-          {hasGradeCreateAccess && (
+          {canCreateGradeWide && (
             <Button
               onClick={() => handleOpenCreateModal("grade")}
               className="bg-teal-600 hover:bg-teal-500 text-white font-black px-4 py-2.5 rounded-xl border border-teal-400/50 shadow-md text-xs sm:text-sm flex items-center gap-2"
@@ -766,7 +780,7 @@ export function GradesManagement() {
             </Button>
           )}
 
-          {hasPublishAccess && (
+          {canPublish && (
             <div className="flex items-center gap-2">
               <Button
                 onClick={() => {
@@ -1065,14 +1079,16 @@ export function GradesManagement() {
               لم يتم العثور على أي تقييمات بناءً على الفلاتر المحددة.
             </p>
           </div>
-          <div className="flex justify-center gap-3 pt-2">
-            <Button
-              onClick={() => handleOpenCreateModal("single")}
-              className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-black px-5 py-2.5 rounded-xl shadow-sm"
-            >
-              إنشاء تقييم الآن
-            </Button>
-          </div>
+          {canAddAssessment && (
+            <div className="flex justify-center gap-3 pt-2">
+              <Button
+                onClick={() => handleOpenCreateModal("single")}
+                className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-black px-5 py-2.5 rounded-xl shadow-sm"
+              >
+                إنشاء تقييم الآن
+              </Button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-4">
@@ -1233,34 +1249,38 @@ export function GradesManagement() {
                     </span>
 
                     <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => handleOpenEditModal(assessment)}
-                        disabled={hasAnyPublished}
-                        className={`px-3 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition-all ${
-                          hasAnyPublished
-                            ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
-                            : "bg-slate-50 hover:bg-teal-50 text-slate-700 hover:text-teal-900 border-slate-200 hover:border-teal-300"
-                        }`}
-                        title={
-                          hasAnyPublished
-                            ? "لا يمكن تعديل تعريف التقييم بعد نشره في أي شعبة"
-                            : "تعديل تعريف التقييم"
-                        }
-                      >
-                        <Edit2 className="w-3 h-3" />
-                        <span>تعديل</span>
-                      </button>
+                      {canChangeAssessment && (
+                        <button
+                          onClick={() => handleOpenEditModal(assessment)}
+                          disabled={hasAnyPublished}
+                          className={`px-3 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition-all ${
+                            hasAnyPublished
+                              ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
+                              : "bg-slate-50 hover:bg-teal-50 text-slate-700 hover:text-teal-900 border-slate-200 hover:border-teal-300"
+                          }`}
+                          title={
+                            hasAnyPublished
+                              ? "لا يمكن تعديل تعريف التقييم بعد نشره في أي شعبة"
+                              : "تعديل تعريف التقييم"
+                          }
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          <span>تعديل</span>
+                        </button>
+                      )}
 
-                      <button
-                        onClick={() => {
-                          setSelectedAssessment(assessment);
-                          setIsDeleteModalOpen(true);
-                        }}
-                        className="p-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-rose-50 text-slate-600 hover:text-rose-700 hover:border-rose-300 text-xs transition-all"
-                        title="حذف التقييم"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {canDeleteAssessment && (
+                        <button
+                          onClick={() => {
+                            setSelectedAssessment(assessment);
+                            setIsDeleteModalOpen(true);
+                          }}
+                          className="p-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-rose-50 text-slate-600 hover:text-rose-700 hover:border-rose-300 text-xs transition-all"
+                          title="حذف التقييم"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1304,7 +1324,7 @@ export function GradesManagement() {
             </Alert>
           )}
 
-          {hasGradeCreateAccess && (
+          {canCreateGradeWide && (
             <div className="flex bg-slate-100 p-1 rounded-xl">
               <button
                 type="button"
@@ -1748,41 +1768,48 @@ export function GradesManagement() {
           )}
 
           {/* Quick Actions */}
-          <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-100 rounded-xl">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const max = scoreSheetAssessment?.max_score || "20.00";
-                  setScoreRecords((prev) =>
-                    prev.map((r) => ({
-                      ...r,
-                      score_input: parseFloat(max).toFixed(2),
-                    })),
-                  );
-                }}
-                className="text-xs font-black text-teal-800 bg-white hover:bg-teal-50 px-3 py-1.5 rounded-lg border border-teal-300 shadow-2xs"
-              >
-                تعبئة الدرجة الكاملة ({scoreSheetAssessment?.max_score}) للجميع
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setScoreRecords((prev) =>
-                    prev.map((r) => ({ ...r, score_input: "" })),
-                  )
-                }
-                className="text-xs font-bold text-rose-700 bg-white hover:bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-300 shadow-2xs"
-              >
-                مسح العلامات (تعيين الكل فارغ / null)
-              </button>
-            </div>
+          {canChangeScore ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-100 rounded-xl">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const max = scoreSheetAssessment?.max_score || "20.00";
+                    setScoreRecords((prev) =>
+                      prev.map((r) => ({
+                        ...r,
+                        score_input: parseFloat(max).toFixed(2),
+                      })),
+                    );
+                  }}
+                  className="text-xs font-black text-teal-800 bg-white hover:bg-teal-50 px-3 py-1.5 rounded-lg border border-teal-300 shadow-2xs"
+                >
+                  تعبئة الدرجة الكاملة ({scoreSheetAssessment?.max_score}) للجميع
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setScoreRecords((prev) =>
+                      prev.map((r) => ({ ...r, score_input: "" })),
+                    )
+                  }
+                  className="text-xs font-bold text-rose-700 bg-white hover:bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-300 shadow-2xs"
+                >
+                  مسح العلامات (تعيين الكل فارغ / null)
+                </button>
+              </div>
 
-            <span className="text-xs text-slate-600 font-bold">
-              * اترك الحقل فارغاً لتسجيل غياب (null). إدخال 0 يعني درجة صفر
-              فعلية.
-            </span>
-          </div>
+              <span className="text-xs text-slate-600 font-bold">
+                * اترك الحقل فارغاً لتسجيل غياب (null). إدخال 0 يعني درجة صفر
+                فعلية.
+              </span>
+            </div>
+          ) : (
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 flex items-center gap-2 font-medium">
+              <Info className="w-4 h-4 text-slate-400 shrink-0" />
+              <span>أنت تشاهد كشف درجات الشعبة بوضع القراءة فقط (لا تملك صلاحية رصد وتعديل العلامات).</span>
+            </div>
+          )}
 
           {/* Student Scores Table */}
           {isScoreSheetLoading ? (
@@ -1847,6 +1874,7 @@ export function GradesManagement() {
                               max={parseFloat(maxScore) || 100}
                               placeholder="فارغ (غائب)"
                               value={rec.score_input}
+                              disabled={!canChangeScore || isSavingScores}
                               onChange={(e) =>
                                 handleScoreInputChange(
                                   rec.enrollment,
@@ -1859,33 +1887,35 @@ export function GradesManagement() {
                                   : hasVal
                                     ? "bg-teal-50 border-teal-400 text-teal-950"
                                     : "bg-slate-50 border-slate-300 text-slate-700"
-                              }`}
+                              } ${!canChangeScore ? "opacity-75 cursor-not-allowed bg-slate-100" : ""}`}
                             />
-                            <div className="flex flex-col gap-0.5 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleScoreInputChange(
-                                    rec.enrollment,
-                                    parseFloat(maxScore).toFixed(2),
-                                  )
-                                }
-                                className="px-1.5 py-0.5 bg-slate-100 hover:bg-teal-100 text-[10px] font-black rounded border border-slate-300 text-slate-700"
-                                title="العلامة الكاملة"
-                              >
-                                كاملة
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleScoreInputChange(rec.enrollment, "0.00")
-                                }
-                                className="px-1.5 py-0.5 bg-slate-100 hover:bg-rose-100 text-[10px] font-black rounded border border-slate-300 text-slate-700"
-                                title="درجة صفر"
-                              >
-                                0
-                              </button>
-                            </div>
+                            {canChangeScore && (
+                              <div className="flex flex-col gap-0.5 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleScoreInputChange(
+                                      rec.enrollment,
+                                      parseFloat(maxScore).toFixed(2),
+                                    )
+                                  }
+                                  className="px-1.5 py-0.5 bg-slate-100 hover:bg-teal-100 text-[10px] font-black rounded border border-slate-300 text-slate-700"
+                                  title="العلامة الكاملة"
+                                >
+                                  كاملة
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleScoreInputChange(rec.enrollment, "0.00")
+                                  }
+                                  className="px-1.5 py-0.5 bg-slate-100 hover:bg-rose-100 text-[10px] font-black rounded border border-slate-300 text-slate-700"
+                                  title="درجة صفر"
+                                >
+                                  0
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </td>
                         <td className="p-3 text-center">
@@ -1943,21 +1973,23 @@ export function GradesManagement() {
               >
                 إغلاق
               </Button>
-              <Button
-                type="button"
-                onClick={handleSaveScores}
-                disabled={
-                  isSavingScores ||
-                  isScoreSheetLoading ||
-                  scoreRecords.length === 0
-                }
-                className="bg-teal-700 hover:bg-teal-800 text-white font-black text-xs px-6 py-2.5 rounded-xl flex items-center gap-2 shadow-md"
-              >
-                {isSavingScores && (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                )}
-                <span>حفظ كشف العلامات</span>
-              </Button>
+              {canChangeScore && (
+                <Button
+                  type="button"
+                  onClick={handleSaveScores}
+                  disabled={
+                    isSavingScores ||
+                    isScoreSheetLoading ||
+                    scoreRecords.length === 0
+                  }
+                  className="bg-teal-700 hover:bg-teal-800 text-white font-black text-xs px-6 py-2.5 rounded-xl flex items-center gap-2 shadow-md"
+                >
+                  {isSavingScores && (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  )}
+                  <span>حفظ كشف العلامات</span>
+                </Button>
+              )}
             </div>
           </div>
         </div>

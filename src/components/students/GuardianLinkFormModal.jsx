@@ -4,6 +4,7 @@ import { Button } from "../ui/Button";
 import { Alert } from "../ui/Alert";
 import { getFieldErrors, parseApiError } from "../../utils/errorUtils";
 import { UserCheck, AlertCircle } from "lucide-react";
+import { SearchableSelect } from "../ui/SearchableSelect";
 
 export function GuardianLinkFormModal({
   isOpen,
@@ -21,9 +22,37 @@ export function GuardianLinkFormModal({
       !g.role // fallback if API only returns guardians
   );
 
+  const guardianOptions = React.useMemo(() => {
+    return onlyParentGuardians.map((g) => {
+      const name =
+        g.full_name ||
+        `${g.first_name || ""} ${g.last_name || ""}`.trim() ||
+        g.username;
+      const details = [];
+      if (g.username) details.push(`@${g.username}`);
+      if (g.national_id) details.push(`هوية: ${g.national_id}`);
+      if (g.phone_number) details.push(`هاتف: ${g.phone_number}`);
+
+      return {
+        value: g.id,
+        label: `${name} (@${g.username})`,
+        subtext: details.join(" | "),
+      };
+    });
+  }, [onlyParentGuardians]);
+
+  const studentOptions = React.useMemo(() => {
+    return students.map((st) => ({
+      value: st.id,
+      label: st.full_name || `${st.first_name || ""} ${st.last_name || ""}`.trim() || st.id,
+      subtext: st.father_name ? `اسم الأب: ${st.father_name}` : "",
+    }));
+  }, [students]);
+
   const [formData, setFormData] = useState({
     guardian: "",
     student: "",
+    relationship: "أب",
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -34,6 +63,7 @@ export function GuardianLinkFormModal({
     setFormData({
       guardian: onlyParentGuardians[0]?.id || "",
       student: students[0]?.id || "",
+      relationship: "أب",
     });
     setGeneralError(null);
     setFieldErrors({});
@@ -56,8 +86,8 @@ export function GuardianLinkFormModal({
     setGeneralError(null);
     setFieldErrors({});
 
-    if (!formData.guardian || !formData.student) {
-      setGeneralError("يرجى اختيار حساب ولي الأمر والطالب المستهدف للربط.");
+    if (!formData.guardian || !formData.student || !formData.relationship.trim()) {
+      setGeneralError("يرجى اختيار حساب ولي الأمر والطالب المستهدف وصلة القرابة للربط.");
       return;
     }
 
@@ -103,25 +133,30 @@ export function GuardianLinkFormModal({
           <label className="block text-xs font-bold text-slate-700 mb-1">
             حساب ولي الأمر (أولياء الأمور المسجلين فقط) <span className="text-rose-500">*</span>
           </label>
-          <select
-            name="guardian"
-            required
-            disabled={hasNoGuardians}
+          <SearchableSelect
+            options={guardianOptions}
             value={formData.guardian}
-            onChange={handleChange}
-            className={`w-full px-3 py-2.5 bg-white border rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 disabled:bg-slate-100 disabled:cursor-not-allowed ${
+            disabled={hasNoGuardians}
+            onChange={(val) => {
+              setFormData((prev) => ({ ...prev, guardian: val }));
+              if (fieldErrors.guardian) {
+                setFieldErrors((prev) => {
+                  const next = { ...prev };
+                  delete next.guardian;
+                  return next;
+                });
+              }
+            }}
+            placeholder="-- اختر ولي الأمر (اكتب للبحث السريع) --"
+            searchPlaceholder="اكتب اسم ولي الأمر أو اسم المستخدم أو الهوية..."
+            emptyMessage="لا يوجد أولياء أمور مطابقين للبحث"
+            noOptionsMessage="-- لا توجد حسابات أولياء أمور مسجلة --"
+            inputClassName={
               fieldErrors.guardian
                 ? "border-rose-400 focus:ring-rose-400"
                 : "border-slate-300 focus:ring-teal-500"
-            }`}
-          >
-            <option value="">-- اختر ولي الأمر (حسابات أولياء الأمور فقط) --</option>
-            {onlyParentGuardians.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.full_name || `${g.first_name || ""} ${g.last_name || ""}`.trim() || g.username} (@{g.username})
-              </option>
-            ))}
-          </select>
+            }
+          />
           {fieldErrors.guardian && (
             <p className="text-[11px] text-rose-600 mt-1">{fieldErrors.guardian}</p>
           )}
@@ -132,26 +167,65 @@ export function GuardianLinkFormModal({
           <label className="block text-xs font-bold text-slate-700 mb-1">
             الطالب المستهدف <span className="text-rose-500">*</span>
           </label>
-          <select
-            name="student"
-            required
+          <SearchableSelect
+            options={studentOptions}
             value={formData.student}
+            onChange={(val) => {
+              setFormData((prev) => ({ ...prev, student: val }));
+              if (fieldErrors.student) {
+                setFieldErrors((prev) => {
+                  const next = { ...prev };
+                  delete next.student;
+                  return next;
+                });
+              }
+            }}
+            placeholder="-- اختر الطالب (اكتب للبحث السريع) --"
+            searchPlaceholder="اكتب اسم الطالب للبحث..."
+            emptyMessage="لا يوجد طلاب مطابقين للبحث"
+            noOptionsMessage="-- لا يوجد طلاب مسجلين --"
+            inputClassName={
+              fieldErrors.student
+                ? "border-rose-400 focus:ring-rose-400"
+                : "border-slate-300 focus:ring-teal-500"
+            }
+          />
+          {fieldErrors.student && (
+            <p className="text-[11px] text-rose-600 mt-1">{fieldErrors.student}</p>
+          )}
+        </div>
+
+        {/* Relationship Selector */}
+        <div>
+          <label className="block text-xs font-bold text-slate-700 mb-1">
+            صلة القرابة <span className="text-rose-500">*</span>
+          </label>
+          <select
+            name="relationship"
+            required
+            value={formData.relationship}
             onChange={handleChange}
             className={`w-full px-3 py-2.5 bg-white border rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 ${
-              fieldErrors.student
+              fieldErrors.relationship
                 ? "border-rose-400 focus:ring-rose-400"
                 : "border-slate-300 focus:ring-teal-500"
             }`}
           >
-            <option value="">-- اختر الطالب --</option>
-            {students.map((st) => (
-              <option key={st.id} value={st.id}>
-                {st.full_name || `${st.first_name} ${st.last_name}`} (الأب: {st.father_name || "-"})
-              </option>
-            ))}
+            <option value="أب">أب</option>
+            <option value="أم">أم</option>
+            <option value="ولي أمر">ولي أمر</option>
+            <option value="أخ">أخ</option>
+            <option value="أخت">أخت</option>
+            <option value="عم">عم</option>
+            <option value="عمة">عمة</option>
+            <option value="خال">خال</option>
+            <option value="خالة">خالة</option>
+            <option value="جد">جد</option>
+            <option value="جدة">جدة</option>
+            <option value="أخرى">أخرى</option>
           </select>
-          {fieldErrors.student && (
-            <p className="text-[11px] text-rose-600 mt-1">{fieldErrors.student}</p>
+          {fieldErrors.relationship && (
+            <p className="text-[11px] text-rose-600 mt-1">{fieldErrors.relationship}</p>
           )}
         </div>
 

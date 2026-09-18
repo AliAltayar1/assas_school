@@ -112,9 +112,17 @@ function formatTimeToHHMMSS(timeStr) {
 }
 
 export function AttendanceManagement() {
-  const { user } = useAuthStore();
-  const hasAccess = canAccessAttendance(user);
-  const hasManageRights = canManageAttendance(user);
+  const { hasPermission, isSuperuser } = useAuthStore();
+  const canAddSheet = hasPermission("attendance.add_attendancesheet") || isSuperuser;
+  const canChangeSheet = hasPermission("attendance.change_attendancesheet") || isSuperuser;
+  const canChangeRecord = hasPermission("attendance.change_attendancerecord") || isSuperuser;
+  const canView =
+    hasPermission("attendance.view_attendancesheet") ||
+    hasPermission("attendance.view_attendancerecord") ||
+    isSuperuser;
+
+  const hasAccess = canView || canAddSheet || canChangeSheet || canChangeRecord;
+  const hasManageRights = canAddSheet || canChangeSheet || canChangeRecord;
 
   // Active View Tab: 'daily' (Take/View Section Sheet) | 'history' (Sheets Archive) | 'records' (Student Records Search)
   const [activeTab, setActiveTab] = useState("daily");
@@ -1954,55 +1962,61 @@ export function AttendanceManagement() {
 
                   <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
                     {sheetMode === "create" ? (
-                      <Button
-                        onClick={handleCreateSheet}
-                        disabled={isSavingSheet || isSelectedDateWeekend}
-                        className="w-full sm:w-auto bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold px-6 py-2.5 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
-                      >
-                        {isSavingSheet ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                            <span>جارٍ حفظ كشف الحضور...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Save className="w-4 h-4" />
-                            <span>حفظ كشف الحضور للشعبة</span>
-                          </>
-                        )}
-                      </Button>
-                    ) : (
-                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                      canAddSheet && (
                         <Button
-                          variant="outline"
-                          onClick={handleOpenDepartureModal}
-                          className="border-purple-400 text-purple-300 hover:bg-purple-900/40 text-xs py-2 px-4 rounded-xl flex items-center gap-1.5 font-bold"
-                        >
-                          <LogOut className="w-4 h-4" />
-                          <span>تسجيل المغادرة</span>
-                        </Button>
-
-                        <Button
-                          onClick={handleBulkUpdateSheet}
-                          disabled={isSavingSheet || !isDirty}
-                          className={`text-xs py-2.5 px-5 rounded-xl font-bold transition-all flex items-center gap-2 ${
-                            isDirty
-                              ? "bg-teal-500 hover:bg-teal-400 text-slate-950 shadow-lg"
-                              : "bg-slate-800 text-slate-400 cursor-not-allowed"
-                          }`}
+                          onClick={handleCreateSheet}
+                          disabled={isSavingSheet || isSelectedDateWeekend}
+                          className="w-full sm:w-auto bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold px-6 py-2.5 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
                         >
                           {isSavingSheet ? (
                             <>
                               <RefreshCw className="w-4 h-4 animate-spin" />
-                              <span>جارٍ حفظ التعديلات...</span>
+                              <span>جارٍ حفظ كشف الحضور...</span>
                             </>
                           ) : (
                             <>
                               <Save className="w-4 h-4" />
-                              <span>حفظ التعديلات (Bulk Update)</span>
+                              <span>حفظ كشف الحضور للشعبة</span>
                             </>
                           )}
                         </Button>
+                      )
+                    ) : (
+                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                        {(canChangeSheet || canChangeRecord) && (
+                          <Button
+                            variant="outline"
+                            onClick={handleOpenDepartureModal}
+                            className="border-purple-400 text-purple-300 hover:bg-purple-900/40 text-xs py-2 px-4 rounded-xl flex items-center gap-1.5 font-bold"
+                          >
+                            <LogOut className="w-4 h-4" />
+                            <span>تسجيل المغادرة</span>
+                          </Button>
+                        )}
+
+                        {canChangeRecord && (
+                          <Button
+                            onClick={handleBulkUpdateSheet}
+                            disabled={isSavingSheet || !isDirty}
+                            className={`text-xs py-2.5 px-5 rounded-xl font-bold transition-all flex items-center gap-2 ${
+                              isDirty
+                                ? "bg-teal-500 hover:bg-teal-400 text-slate-950 shadow-lg"
+                                : "bg-slate-800 text-slate-400 cursor-not-allowed"
+                            }`}
+                          >
+                            {isSavingSheet ? (
+                              <>
+                                <RefreshCw className="w-4 h-4 animate-spin" />
+                                <span>جارٍ حفظ التعديلات...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Save className="w-4 h-4" />
+                                <span>حفظ التعديلات (Bulk Update)</span>
+                              </>
+                            )}
+                          </Button>
+                        )}
                       </div>
                     )}
                   </div>

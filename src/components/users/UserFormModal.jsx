@@ -4,7 +4,7 @@ import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { Alert } from '../ui/Alert';
 import { parseApiError } from '../../utils/errorUtils';
-import { User, Mail } from 'lucide-react';
+import { User, Mail, CreditCard, Phone } from 'lucide-react';
 
 export function UserFormModal({ isOpen, onClose, onSubmit, initialUser = null }) {
   const isEditing = Boolean(initialUser);
@@ -13,6 +13,8 @@ export function UserFormModal({ isOpen, onClose, onSubmit, initialUser = null })
   const [email, setEmail] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [nationalId, setNationalId] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [role, setRole] = useState('teacher');
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState(null);
@@ -24,12 +26,16 @@ export function UserFormModal({ isOpen, onClose, onSubmit, initialUser = null })
       setEmail(initialUser.email || '');
       setFirstName(initialUser.first_name || '');
       setLastName(initialUser.last_name || '');
+      setNationalId(initialUser.national_id || '');
+      setPhoneNumber(initialUser.phone_number || initialUser.phone || '');
       setRole(initialUser.role || 'teacher');
     } else {
       setUsername('');
       setEmail('');
       setFirstName('');
       setLastName('');
+      setNationalId('');
+      setPhoneNumber('');
       setRole('teacher');
     }
     setErrors({});
@@ -55,13 +61,17 @@ export function UserFormModal({ isOpen, onClose, onSubmit, initialUser = null })
     setIsSubmitting(true);
 
     try {
-      await onSubmit({
+      const payload = {
         username,
         email,
         first_name: firstName,
         last_name: lastName,
         role,
-      });
+      };
+      if (nationalId.trim()) payload.national_id = nationalId.trim();
+      if (phoneNumber.trim()) payload.phone_number = phoneNumber.trim();
+
+      await onSubmit(payload);
 
       onClose();
     } catch (err) {
@@ -110,6 +120,26 @@ export function UserFormModal({ isOpen, onClose, onSubmit, initialUser = null })
             error={errors.lastName}
             disabled={isSubmitting}
             required
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Input
+            label="الرقم الوطني / الهوية (اختياري)"
+            placeholder="مثال: 01234567891"
+            icon={CreditCard}
+            value={nationalId}
+            onChange={(e) => setNationalId(e.target.value)}
+            disabled={isSubmitting}
+          />
+
+          <Input
+            label="رقم الهاتف (اختياري)"
+            placeholder="مثال: 0933111222"
+            icon={Phone}
+            value={phoneNumber}
+            onChange={(e) => setPhoneNumber(e.target.value)}
+            disabled={isSubmitting}
           />
         </div>
 

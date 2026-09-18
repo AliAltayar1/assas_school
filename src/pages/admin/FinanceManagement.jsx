@@ -8,14 +8,6 @@ import { Pagination } from "../../components/ui/Pagination";
 import { toast } from "sonner";
 import { parseApiError, extractPaginatedList } from "../../utils/errorUtils";
 import {
-  canManageTuitionPlans,
-  canManageDiscounts,
-  canCancelFinanceTransactions,
-  canRecordPayments,
-  canPreviewRemainingSyp,
-  isSchoolAdmin,
-} from "../../utils/permissionUtils";
-import {
   DollarSign,
   Search,
   RefreshCw,
@@ -47,15 +39,35 @@ import {
 } from "lucide-react";
 
 export function FinanceManagement() {
-  const { user } = useAuthStore();
+  const { user, hasPermission, hasAnyPermission, isSuperuser } = useAuthStore();
 
-  // Role Permissions
-  const adminMode = isSchoolAdmin(user);
-  const allowTuitionPlans = canManageTuitionPlans(user);
-  const allowDiscounts = canManageDiscounts(user);
-  const allowCancel = canCancelFinanceTransactions(user);
-  const allowRecordPayment = canRecordPayments(user);
-  const allowPreviewSyp = canPreviewRemainingSyp(user);
+  // Business Permissions (Fine-grained)
+  const canViewTuitionPlans =
+    hasAnyPermission([
+      "finance.view_gradetuitionplan",
+      "finance.add_gradetuitionplan",
+      "finance.change_gradetuitionplan",
+    ]) || isSuperuser;
+  const canAddTuitionPlan =
+    hasPermission("finance.add_gradetuitionplan") || isSuperuser;
+  const canChangeTuitionPlan =
+    hasPermission("finance.change_gradetuitionplan") || isSuperuser;
+  const canRecordPayment =
+    hasPermission("finance.add_payment") || isSuperuser;
+  const canCancelPayment =
+    hasPermission("finance.cancel_payment") || isSuperuser;
+  const canAddDiscount =
+    hasPermission("finance.add_studentdiscount") || isSuperuser;
+  const canCancelDiscount =
+    hasPermission("finance.cancel_discount") || isSuperuser;
+  const canPreviewSyp =
+    hasPermission("finance.view_studentfinancialaccount") || isSuperuser;
+
+  // Permission Aliases for Modal Guards
+  const allowTuitionPlans = canViewTuitionPlans;
+  const allowDiscounts = canAddDiscount;
+  const allowCancel = canCancelPayment || canCancelDiscount;
+  const allowPreviewSyp = canPreviewSyp;
 
   // Active Main Tab: "accounts" | "tuition_plans"
   const [activeMainTab, setActiveMainTab] = useState("accounts");
@@ -109,6 +121,7 @@ export function FinanceManagement() {
     currency: "usd", // "usd" | "syp"
     amount: "",
     exchange_rate_syp_per_usd: "",
+    note: "",
   });
   const [isPaymentSubmitting, setIsPaymentSubmitting] = useState(false);
   const [paymentModalError, setPaymentModalError] = useState(null);
@@ -217,7 +230,7 @@ export function FinanceManagement() {
 
   // Fetch Tuition Plans
   const fetchTuitionPlans = useCallback(async () => {
-    if (!allowTuitionPlans) return;
+    if (!canViewTuitionPlans) return;
     setIsPlansLoading(true);
     setPlansError(null);
     try {
@@ -231,7 +244,7 @@ export function FinanceManagement() {
     } finally {
       setIsPlansLoading(false);
     }
-  }, [allowTuitionPlans]);
+  }, [canViewTuitionPlans]);
 
   // Main Page Data Fetch
   useEffect(() => {
@@ -375,6 +388,7 @@ export function FinanceManagement() {
       currency: "usd",
       amount: "",
       exchange_rate_syp_per_usd: "",
+      note: "",
     });
     setPaymentModalError(null);
     setIsPaymentModalOpen(true);
@@ -407,6 +421,11 @@ export function FinanceManagement() {
       }
       payload.exchange_rate_syp_per_usd =
         paymentForm.exchange_rate_syp_per_usd.trim();
+    }
+
+    const trimmedNote = paymentForm.note ? paymentForm.note.trim() : "";
+    if (trimmedNote) {
+      payload.note = trimmedNote;
     }
 
     setIsPaymentSubmitting(true);
@@ -716,7 +735,7 @@ export function FinanceManagement() {
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           {/* Main Tabs (Accounts / Tuition Plans) */}
-          {allowTuitionPlans && (
+          {canViewTuitionPlans && (
             <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 border border-slate-200">
               <button
                 onClick={() => setActiveMainTab("accounts")}
@@ -761,7 +780,7 @@ export function FinanceManagement() {
             <span>تحديث</span>
           </Button>
 
-          {activeMainTab === "tuition_plans" && allowTuitionPlans && (
+          {activeMainTab === "tuition_plans" && canAddTuitionPlan && (
             <Button
               size="sm"
               onClick={() => handleOpenPlanModal(null)}
@@ -984,7 +1003,7 @@ export function FinanceManagement() {
                       يتم إنشاء الحسابات المالية تلقائياً للطلاب المسجلين فور
                       تحديد خطة الرسوم الدراسية (Tuition Plan) لصفوفهم.
                     </p>
-                    {allowTuitionPlans && (
+                    {canAddTuitionPlan && (
                       <div className="pt-2">
                         <Button
                           size="sm"
@@ -1197,9 +1216,9 @@ export function FinanceManagement() {
       )}
 
       {/* ============================================================ */}
-      {/* VIEW B: TUITION PLANS TAB (School Admin Only)                */}
+      {/* VIEW B: TUITION PLANS TAB                                   */}
       {/* ============================================================ */}
-      {activeMainTab === "tuition_plans" && allowTuitionPlans && (
+      {activeMainTab === "tuition_plans" && canViewTuitionPlans && (
         <div className="space-y-4">
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 flex items-start gap-2">
             <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
@@ -1237,16 +1256,18 @@ export function FinanceManagement() {
                   قم بإضافة القسط الأساسي لكل صف دراسي لتفعيل الحسابات المالية
                   للطلاب.
                 </p>
-                <div className="pt-2">
-                  <Button
-                    size="sm"
-                    onClick={() => handleOpenPlanModal(null)}
-                    className="text-xs gap-1.5"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>إضافة سعر صف جديد</span>
-                  </Button>
-                </div>
+                {canAddTuitionPlan && (
+                  <div className="pt-2">
+                    <Button
+                      size="sm"
+                      onClick={() => handleOpenPlanModal(null)}
+                      className="text-xs gap-1.5"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>إضافة سعر صف جديد</span>
+                    </Button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -1258,12 +1279,13 @@ export function FinanceManagement() {
                       <th className="py-3.5 px-4">
                         القسط السنوي الأساسي (USD)
                       </th>
-                      <th className="py-3.5 px-4 text-center">الإجراء</th>
+                      {canChangeTuitionPlan && (
+                        <th className="py-3.5 px-4 text-center">الإجراء</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {tuitionPlans.map((plan) => {
-                      console.log(plan);
                       const yearName = plan.academic_year_display || "-";
                       const gradeName = plan.grade_level_display || "-";
 
@@ -1281,17 +1303,19 @@ export function FinanceManagement() {
                           <td className="py-3.5 px-4 whitespace-nowrap font-bold text-emerald-700 text-sm">
                             {formatUSD(plan.base_tuition_usd)}
                           </td>
-                          <td className="py-3.5 px-4 whitespace-nowrap text-center">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleOpenPlanModal(plan)}
-                              className="h-8 px-3 text-xs gap-1.5 font-medium text-slate-700 hover:text-teal-700 hover:border-teal-300"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                              <span>تعديل السعر</span>
-                            </Button>
-                          </td>
+                          {canChangeTuitionPlan && (
+                            <td className="py-3.5 px-4 whitespace-nowrap text-center">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleOpenPlanModal(plan)}
+                                className="h-8 px-3 text-xs gap-1.5 font-medium text-slate-700 hover:text-teal-700 hover:border-teal-300"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                                <span>تعديل السعر</span>
+                              </Button>
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
@@ -1455,7 +1479,7 @@ export function FinanceManagement() {
 
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center gap-2">
-                {allowPreviewSyp && (
+                {canPreviewSyp && (
                   <Button
                     type="button"
                     variant="outline"
@@ -1468,7 +1492,7 @@ export function FinanceManagement() {
                   </Button>
                 )}
 
-                {allowDiscounts && (
+                {canAddDiscount && (
                   <Button
                     type="button"
                     variant="outline"
@@ -1481,7 +1505,7 @@ export function FinanceManagement() {
                   </Button>
                 )}
 
-                {allowRecordPayment && (
+                {canRecordPayment && (
                   <Button
                     type="button"
                     size="sm"
@@ -1531,9 +1555,10 @@ export function FinanceManagement() {
                           <th className="py-2.5 px-3">العملة</th>
                           <th className="py-2.5 px-3">سعر الصرف</th>
                           <th className="py-2.5 px-3">المكافئ بالدولار</th>
+                          <th className="py-2.5 px-3">الملاحظة</th>
                           <th className="py-2.5 px-3">المستلم</th>
                           <th className="py-2.5 px-3">الحالة</th>
-                          {allowCancel && (
+                          {canCancelPayment && (
                             <th className="py-2.5 px-3 text-center">إجراء</th>
                           )}
                         </tr>
@@ -1554,7 +1579,7 @@ export function FinanceManagement() {
                               }`}
                             >
                               <td className="py-2.5 px-3 whitespace-nowrap">
-                                {formatDateTime(p.created_at || p.payment_date)}
+                                {formatDateTime(p.created_at || p.payment_date || p.paid_at)}
                               </td>
 
                               <td className="py-2.5 px-3 whitespace-nowrap font-bold">
@@ -1595,8 +1620,22 @@ export function FinanceManagement() {
                                 )}
                               </td>
 
+                              <td className="py-2.5 px-3 max-w-[180px]">
+                                {p.note && p.note.trim() !== "" ? (
+                                  <span
+                                    className="inline-block text-[11px] text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200/60 font-medium truncate max-w-full"
+                                    title={p.note}
+                                  >
+                                    {p.note}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-300 text-[11px]">-</span>
+                                )}
+                              </td>
+
                               <td className="py-2.5 px-3 whitespace-nowrap text-slate-600">
-                                {p.created_by_username ||
+                                {p.recorded_by_username ||
+                                  p.created_by_username ||
                                   p.created_by ||
                                   "المحاسب"}
                               </td>
@@ -1625,7 +1664,7 @@ export function FinanceManagement() {
                                 )}
                               </td>
 
-                              {allowCancel && (
+                              {canCancelPayment && (
                                 <td className="py-2.5 px-3 whitespace-nowrap text-center">
                                   {!isCancelled ? (
                                     <button
@@ -1679,7 +1718,7 @@ export function FinanceManagement() {
                     <p className="font-bold text-slate-700">
                       لا توجد أي خصومات ممنوحة لهذا الحساب
                     </p>
-                    {allowDiscounts && (
+                    {canAddDiscount && (
                       <p className="text-[11px]">
                         يمكنك منح خصم (نسبة مئوية أو مبلغ ثابت) عبر زر "إضافة
                         خصم" بالأعلى.
@@ -1698,7 +1737,7 @@ export function FinanceManagement() {
                           <th className="py-2.5 px-3">سبب الخصم</th>
                           <th className="py-2.5 px-3">من سجله</th>
                           <th className="py-2.5 px-3">الحالة</th>
-                          {allowCancel && (
+                          {canCancelDiscount && (
                             <th className="py-2.5 px-3 text-center">إجراء</th>
                           )}
                         </tr>
@@ -1790,7 +1829,7 @@ export function FinanceManagement() {
                                 )}
                               </td>
 
-                              {allowCancel && (
+                              {canCancelDiscount && (
                                 <td className="py-2.5 px-3 whitespace-nowrap text-center">
                                   {!isCancelled ? (
                                     <button
@@ -1961,6 +2000,31 @@ export function FinanceManagement() {
               )}
             </div>
           )}
+
+          {/* Note Input (Optional) */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label
+                htmlFor="payment_note"
+                className="block text-xs font-bold text-slate-800"
+              >
+                الملاحظة:
+              </label>
+              <span className="text-[11px] text-slate-400 font-medium">
+                (اختياري)
+              </span>
+            </div>
+            <textarea
+              id="payment_note"
+              rows={2}
+              placeholder="مثال: الدفع شام كاش، تم الاستلام نقداً، دفعة شهر أيلول، حوالة بنكية..."
+              value={paymentForm.note || ""}
+              onChange={(e) =>
+                setPaymentForm((prev) => ({ ...prev, note: e.target.value }))
+              }
+              className="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none resize-none leading-relaxed placeholder:text-slate-400"
+            />
+          </div>
 
           {/* Form Action Buttons */}
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">

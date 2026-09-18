@@ -16,9 +16,11 @@ import { toast } from "sonner";
 import { Plus, Edit2, Trash2, RefreshCw, Lock } from "lucide-react";
 
 export function TermsTab() {
-  const { user } = useAuthStore();
-  const teacherReadOnly = isTeacher(user);
-  const canManage = canManageAcademics(user);
+  const { hasPermission } = useAuthStore();
+  const canAdd = hasPermission("academics.add_term");
+  const canChange = hasPermission("academics.change_term");
+  const canDelete = hasPermission("academics.delete_term");
+  const isReadOnly = !canAdd && !canChange && !canDelete;
 
   const [terms, setTerms] = useState([]);
   const [years, setYears] = useState([]);
@@ -179,14 +181,14 @@ export function TermsTab() {
             <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
           </Button>
 
-          {canManage && (
+          {canAdd && (
             <Button onClick={handleOpenCreate} className="gap-2">
               <Plus className="w-4 h-4" />
               <span>إنشاء فصل دراسي جديد</span>
             </Button>
           )}
 
-          {teacherReadOnly && (
+          {isReadOnly && (
             <span className="flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-200 text-xs px-2.5 py-1 rounded-lg font-bold">
               <Lock className="w-3.5 h-3.5" />
               <span>قراءة فقط</span>
@@ -216,7 +218,7 @@ export function TermsTab() {
                 <th className="py-3 px-4">تاريخ البداية</th>
                 <th className="py-3 px-4">تاريخ النهاية</th>
                 <th className="py-3 px-4">الحالة (Status)</th>
-                {canManage && <th className="py-3 px-4 text-center">الإجراءات</th>}
+                {(canChange || canDelete) && <th className="py-3 px-4 text-center">الإجراءات</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
@@ -237,23 +239,27 @@ export function TermsTab() {
                       {term.status_display || term.status}
                     </Badge>
                   </td>
-                  {canManage && (
+                  {(canChange || canDelete) && (
                     <td className="py-3 px-4 text-center">
                       <div className="flex items-center justify-center gap-2">
-                        <button
-                          onClick={() => handleOpenEdit(term)}
-                          className="p-1 text-slate-600 hover:text-teal-600 rounded transition-colors"
-                          title="تعديل"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteTerm(term)}
-                          className="p-1 text-slate-600 hover:text-rose-600 rounded transition-colors"
-                          title="حذف"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {canChange && (
+                          <button
+                            onClick={() => handleOpenEdit(term)}
+                            className="p-1 text-slate-600 hover:text-teal-600 rounded transition-colors"
+                            title="تعديل"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={() => handleDeleteTerm(term)}
+                            className="p-1 text-slate-600 hover:text-rose-600 rounded transition-colors"
+                            title="حذف"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   )}

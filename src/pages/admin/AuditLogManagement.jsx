@@ -28,8 +28,8 @@ import {
 } from "lucide-react";
 
 export function AuditLogManagement() {
-  const { user } = useAuthStore();
-  const hasAccess = canAccessAuditLogs(user);
+  const { user, hasPermission, isSuperuser } = useAuthStore();
+  const hasAccess = hasPermission("audit_logs.view_auditlog") || isSuperuser;
 
   // Data State
   const [logs, setLogs] = useState([]);

@@ -48,16 +48,16 @@ export function SearchableSelect({
 
   // Find currently selected option
   const selectedOption = useMemo(() => {
-    if (!value) return null;
+    if (!value && value !== 0) return null;
     return options.find(
-      (opt) => String(opt.value) === String(value) || String(opt.id) === String(value)
+      (opt) => String(opt.value ?? opt.id) === String(value)
     );
   }, [options, value]);
 
   // Keep inputValue in sync with external value when dropdown is closed
   useEffect(() => {
     if (!isOpen) {
-      setInputValue(selectedOption ? selectedOption.label : "");
+      setInputValue(selectedOption ? (selectedOption.label || selectedOption.name || "") : "");
     }
   }, [selectedOption, isOpen]);
 
@@ -66,18 +66,19 @@ export function SearchableSelect({
     if (!options || options.length === 0) return [];
 
     const query = inputValue.trim();
+    const currentLabel = selectedOption ? (selectedOption.label || selectedOption.name || "") : "";
 
     // If query is empty or unchanged from the selected option label, show all options
-    if (!query || (selectedOption && query === selectedOption.label)) {
+    if (!query || (selectedOption && query === currentLabel)) {
       return options;
     }
 
     const normQuery = normalizeArabic(query);
 
     return options.filter((opt) => {
-      const normLabel = normalizeArabic(opt.label || "");
+      const normLabel = normalizeArabic(opt.label || opt.name || "");
       const normSubtext = normalizeArabic(opt.subtext || "");
-      const normVal = String(opt.value || "").toLowerCase();
+      const normVal = String(opt.value ?? opt.id ?? "").toLowerCase();
 
       return (
         normLabel.includes(normQuery) ||
@@ -96,7 +97,7 @@ export function SearchableSelect({
       ) {
         setIsOpen(false);
         // Reset input value back to selected label if user typed something unselected
-        setInputValue(selectedOption ? selectedOption.label : "");
+        setInputValue(selectedOption ? (selectedOption.label || selectedOption.name || "") : "");
         setHighlightedIndex(-1);
       }
     };
@@ -126,11 +127,13 @@ export function SearchableSelect({
   }, [highlightedIndex, isOpen]);
 
   const handleSelect = (option) => {
-    setInputValue(option.label);
+    const label = option.label || option.name || "";
+    const val = option.value !== undefined ? option.value : option.id;
+    setInputValue(label);
     setIsOpen(false);
     setHighlightedIndex(-1);
     if (onChange) {
-      onChange(option.value, option);
+      onChange(val, option);
     }
   };
 
@@ -179,7 +182,7 @@ export function SearchableSelect({
     } else if (e.key === "Escape") {
       e.preventDefault();
       setIsOpen(false);
-      setInputValue(selectedOption ? selectedOption.label : "");
+      setInputValue(selectedOption ? (selectedOption.label || selectedOption.name || "") : "");
       setHighlightedIndex(-1);
     }
   };
@@ -226,13 +229,17 @@ export function SearchableSelect({
           type="text"
           disabled={disabled}
           value={inputValue}
-          placeholder={selectedOption ? selectedOption.label : placeholder}
-          onFocus={() => {
+          placeholder={selectedOption ? (selectedOption.label || selectedOption.name) : placeholder}
+          onFocus={(e) => {
             setIsOpen(true);
             setHighlightedIndex(-1);
+            e.target.select();
           }}
-          onClick={() => {
-            if (!isOpen) setIsOpen(true);
+          onClick={(e) => {
+            if (!isOpen) {
+              setIsOpen(true);
+              e.target.select();
+            }
           }}
           onChange={(e) => {
             setInputValue(e.target.value);
@@ -297,8 +304,8 @@ export function SearchableSelect({
               filteredOptions.map((opt, index) => {
                 const isSelected =
                   selectedOption &&
-                  (String(opt.value) === String(selectedOption.value) ||
-                    String(opt.id) === String(selectedOption.id));
+                  String(opt.value ?? opt.id) ===
+                    String(selectedOption.value ?? selectedOption.id);
                 const isHighlighted = highlightedIndex === index;
 
                 return (
@@ -316,7 +323,7 @@ export function SearchableSelect({
                   >
                     <div className="flex flex-col min-w-0">
                       <span className="truncate leading-relaxed">
-                        {opt.label}
+                        {opt.label || opt.name}
                       </span>
                       {opt.subtext && (
                         <span className="text-[10px] text-slate-400 font-mono truncate">

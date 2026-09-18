@@ -19,6 +19,25 @@ export const studentsService = {
     return res.data;
   },
 
+  // POST /api/v1/students/register/ - Full unified registration (Student + Guardian + Health Profile)
+  registerStudent: async (data) => {
+    const res = await axiosInstance.post("/students/register/", data);
+    return res.data;
+  },
+
+  // ==========================================
+  // 1.1 HEALTH PROFILE (/students/{id}/health-profile/)
+  // ==========================================
+  getHealthProfile: async (studentId) => {
+    const res = await axiosInstance.get(`/students/${studentId}/health-profile/`);
+    return res.data;
+  },
+
+  updateHealthProfile: async (studentId, data) => {
+    const res = await axiosInstance.patch(`/students/${studentId}/health-profile/`, data);
+    return res.data;
+  },
+
   updateStudent: async (id, data) => {
     const res = await axiosInstance.patch(`/students/students/${id}/`, data);
     return res.data;
@@ -96,4 +115,22 @@ export const studentsService = {
     });
     return res.data;
   },
+
+  // ==========================================
+  // 4. COMPREHENSIVE PROFILE (/students/{student_id}/profile/)
+  // ==========================================
+  getStudentProfile: async (studentId, params = {}) => {
+    const cleanParams = Object.entries(params).reduce((acc, [key, val]) => {
+      if (val !== undefined && val !== null && val !== "") {
+        acc[key] = val;
+      }
+      return acc;
+    }, {});
+
+    const res = await axiosInstance.get(`/students/${studentId}/profile/`, {
+      params: cleanParams,
+    });
+    return res.data;
+  },
 };
+

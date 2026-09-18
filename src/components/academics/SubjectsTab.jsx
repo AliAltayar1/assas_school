@@ -16,9 +16,11 @@ import { toast } from "sonner";
 import { Plus, Edit2, Trash2, RefreshCw, Search, Lock } from "lucide-react";
 
 export function SubjectsTab() {
-  const { user } = useAuthStore();
-  const teacherReadOnly = isTeacher(user);
-  const canManage = canManageAcademics(user);
+  const { hasPermission } = useAuthStore();
+  const canAdd = hasPermission("academics.add_subject");
+  const canChange = hasPermission("academics.change_subject");
+  const canDelete = hasPermission("academics.delete_subject");
+  const isReadOnly = !canAdd && !canChange && !canDelete;
 
   const [subjects, setSubjects] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -147,14 +149,14 @@ export function SubjectsTab() {
             <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
           </Button>
 
-          {canManage && (
+          {canAdd && (
             <Button onClick={handleOpenCreate} className="gap-2">
               <Plus className="w-4 h-4" />
               <span>إضافة مادة جديدة</span>
             </Button>
           )}
 
-          {teacherReadOnly && (
+          {isReadOnly && (
             <span className="flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-200 text-xs px-2.5 py-1 rounded-lg font-bold">
               <Lock className="w-3.5 h-3.5" />
               <span>قراءة فقط</span>
@@ -183,7 +185,9 @@ export function SubjectsTab() {
                 <th className="py-3 px-4">اسم المادة التعليمية</th>
                 <th className="py-3 px-4">رمز المادة (Code)</th>
                 <th className="py-3 px-4">الحالة</th>
-                {canManage && <th className="py-3 px-4 text-center">الإجراءات</th>}
+                {(canChange || canDelete) && (
+                  <th className="py-3 px-4 text-center">الإجراءات</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
@@ -202,23 +206,27 @@ export function SubjectsTab() {
                       <Badge variant="danger">معطلة</Badge>
                     )}
                   </td>
-                  {canManage && (
+                  {(canChange || canDelete) && (
                     <td className="py-3 px-4 text-center">
                       <div className="flex items-center justify-center gap-2">
-                        <button
-                          onClick={() => handleOpenEdit(subj)}
-                          className="p-1 text-slate-600 hover:text-teal-600 rounded transition-colors"
-                          title="تعديل"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteSubject(subj)}
-                          className="p-1 text-slate-600 hover:text-rose-600 rounded transition-colors"
-                          title="حذف"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {canChange && (
+                          <button
+                            onClick={() => handleOpenEdit(subj)}
+                            className="p-1 text-slate-600 hover:text-teal-600 rounded transition-colors"
+                            title="تعديل"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={() => handleDeleteSubject(subj)}
+                            className="p-1 text-slate-600 hover:text-rose-600 rounded transition-colors"
+                            title="حذف"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   )}

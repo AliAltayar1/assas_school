@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { api } from "../../api";
+import { useAuthStore } from "../../store/useAuthStore";
 import { UserFilters } from "../../components/users/UserFilters";
 import { UsersTable } from "../../components/users/UsersTable";
 import { UserFormModal } from "../../components/users/UserFormModal";
+import { GuardianDetailsModal } from "../../components/users/GuardianDetailsModal";
 import { TempPasswordModal } from "../../components/users/TempPasswordModal";
+import { UserPermissionsModal } from "../../components/users/UserPermissionsModal";
 import { Pagination } from "../../components/ui/Pagination";
 import { Button } from "../../components/ui/Button";
 import { Alert } from "../../components/ui/Alert";
@@ -17,6 +20,9 @@ import {
 import { Users, UserPlus, RefreshCw } from "lucide-react";
 
 export function UserStaffManagement() {
+  const { hasPermission } = useAuthStore();
+  const canAddUser = hasPermission("accounts.add_user");
+
   const [users, setUsers] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
   const [hasNext, setHasNext] = useState(false);
@@ -35,9 +41,15 @@ export function UserStaffManagement() {
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
 
+  const [selectedDetailsUser, setSelectedDetailsUser] = useState(null);
+  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+
   const [tempPassword, setTempPassword] = useState(null);
   const [tempPasswordUsername, setTempPasswordUsername] = useState("");
   const [isTempModalOpen, setIsTempModalOpen] = useState(false);
+
+  const [permissionsUser, setPermissionsUser] = useState(null);
+  const [isPermissionsModalOpen, setIsPermissionsModalOpen] = useState(false);
 
   // Confirm Modal state
   const [confirmConfig, setConfirmConfig] = useState({
@@ -217,10 +229,12 @@ export function UserStaffManagement() {
             <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
           </Button>
 
-          <Button onClick={handleOpenCreateModal} className="gap-2">
-            <UserPlus className="w-4 h-4" />
-            <span>إضافة حساب موظف جديد</span>
-          </Button>
+          {canAddUser && (
+            <Button onClick={handleOpenCreateModal} className="gap-2">
+              <UserPlus className="w-4 h-4" />
+              <span>إضافة حساب موظف جديد</span>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -245,6 +259,14 @@ export function UserStaffManagement() {
         onEdit={handleOpenEditModal}
         onToggleActive={handleToggleActive}
         onResetPassword={handleResetPassword}
+        onViewDetails={(user) => {
+          setSelectedDetailsUser(user);
+          setIsDetailsModalOpen(true);
+        }}
+        onManagePermissions={(user) => {
+          setPermissionsUser(user);
+          setIsPermissionsModalOpen(true);
+        }}
       />
 
       {/* Pagination Controls */}
@@ -255,6 +277,27 @@ export function UserStaffManagement() {
         onPageChange={(page) => setCurrentPage(page)}
         hasNext={hasNext}
         hasPrevious={hasPrevious}
+      />
+
+      {/* Modal for User Business Permissions Management */}
+      <UserPermissionsModal
+        isOpen={isPermissionsModalOpen}
+        onClose={() => {
+          setIsPermissionsModalOpen(false);
+          setPermissionsUser(null);
+        }}
+        user={permissionsUser}
+        onPermissionsUpdated={() => fetchUsers()}
+      />
+
+      {/* Modal for Guardian / User Details and Linked Students */}
+      <GuardianDetailsModal
+        isOpen={isDetailsModalOpen}
+        onClose={() => {
+          setIsDetailsModalOpen(false);
+          setSelectedDetailsUser(null);
+        }}
+        user={selectedDetailsUser}
       />
 
       {/* Modal for Creating / Editing Users */}

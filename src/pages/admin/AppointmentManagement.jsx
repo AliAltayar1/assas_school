@@ -29,8 +29,8 @@ import {
 } from "lucide-react";
 
 export function AppointmentManagement() {
-  const { user } = useAuthStore();
-  const canDecide = canDecideAppointments(user);
+  const { user, hasPermission, isSuperuser } = useAuthStore();
+  const canDecide = hasPermission("appointments.decide_appointment_request") || isSuperuser;
 
   // Appointments Data States
   const [appointments, setAppointments] = useState([]);
@@ -58,6 +58,7 @@ export function AppointmentManagement() {
   const [decisionModalType, setDecisionModalType] = useState(null); // 'approve' | 'reject' | null
   const [targetAppointment, setTargetAppointment] = useState(null);
   const [decisionReason, setDecisionReason] = useState("");
+  const [approvalNote, setApprovalNote] = useState("");
   const [isSubmittingDecision, setIsSubmittingDecision] = useState(false);
   const [decisionModalError, setDecisionModalError] = useState(null);
 
@@ -148,6 +149,26 @@ export function AppointmentManagement() {
     }
   };
 
+  const formatTimeOnly = (timeString) => {
+    if (!timeString) return "-";
+    try {
+      const parts = String(timeString).split(":");
+      if (parts.length >= 2) {
+        let hours = parseInt(parts[0], 10);
+        const minutes = parts[1];
+        if (!isNaN(hours)) {
+          const isPm = hours >= 12;
+          const period = isPm ? "مساءً" : "صباحاً";
+          hours = hours % 12 || 12;
+          return `${hours}:${minutes} ${period}`;
+        }
+      }
+      return timeString;
+    } catch {
+      return timeString;
+    }
+  };
+
   // Quick Stats Calculation
   const stats = useMemo(() => {
     const total = totalCount || appointments.length;
@@ -214,6 +235,7 @@ export function AppointmentManagement() {
     setTargetAppointment(appointment);
     setDecisionModalType(type);
     setDecisionReason("");
+    setApprovalNote("");
     setDecisionModalError(null);
   };
 
@@ -241,7 +263,8 @@ export function AppointmentManagement() {
     try {
       let res;
       if (decisionModalType === "approve") {
-        res = await api.appointments.approve(targetAppointment.id);
+        const trimmedNote = approvalNote.trim();
+        res = await api.appointments.approve(targetAppointment.id, trimmedNote);
         toast.success(res?.message || "تم قبول طلب الموعد بنجاح.");
       } else {
         const trimmedReason = decisionReason.trim();
@@ -253,6 +276,7 @@ export function AppointmentManagement() {
       setDecisionModalType(null);
       setTargetAppointment(null);
       setDecisionReason("");
+      setApprovalNote("");
 
       // If details modal was open for this appointment, close it or refresh it
       if (selectedAppointment?.id === targetAppointment.id) {
@@ -514,8 +538,10 @@ export function AppointmentManagement() {
               >
                 <option value="-created_at">تاريخ الإرسال (الأحدث أولاً)</option>
                 <option value="created_at">تاريخ الإرسال (الأقدم أولاً)</option>
-                <option value="requested_date">تاريخ الحضور المطلوب (الأقرب أولاً)</option>
-                <option value="-requested_date">تاريخ الحضور المطلوب (الأبعد أولاً)</option>
+                <option value="requested_date">تاريخ الموعد المطلوب (الأقرب أولاً)</option>
+                <option value="-requested_date">تاريخ الموعد المطلوب (الأبعد أولاً)</option>
+                <option value="requested_time">الساعة المطلوبة (الأبكر أولاً)</option>
+                <option value="-requested_time">الساعة المطلوبة (الأحدث أولاً)</option>
               </select>
             </div>
           </div>
@@ -584,11 +610,12 @@ export function AppointmentManagement() {
                 <thead className="bg-slate-50/80 text-slate-600 font-bold border-b border-slate-200">
                   <tr>
                     <th className="py-3.5 px-4">ولي الأمر</th>
-                    <th className="py-3.5 px-4">التاريخ المطلوب للحضور</th>
-                    <th className="py-3.5 px-4 min-w-[200px]">سبب طلب الحضور</th>
+                    <th className="py-3.5 px-4">التاريخ المطلوب</th>
+                    <th className="py-3.5 px-4">الساعة المطلوبة</th>
+                    <th className="py-3.5 px-4 min-w-[180px]">سبب طلب الحضور</th>
                     <th className="py-3.5 px-4">الحالة</th>
                     <th className="py-3.5 px-4">تاريخ إرسال الطلب</th>
-                    <th className="py-3.5 px-4">صاحب القرار</th>
+                    <th className="py-3.5 px-4">قرار الإدارة</th>
                     <th className="py-3.5 px-4 text-center">الإجراءات</th>
                   </tr>
                 </thead>
@@ -630,6 +657,19 @@ export function AppointmentManagement() {
                         </span>
                       </td>
 
+                      {/* Requested Time */}
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5 font-bold text-teal-800">
+                          <Clock className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                          <span>{formatTimeOnly(item.requested_time)}</span>
+                        </div>
+                        {item.requested_time && (
+                          <span className="text-[10px] text-slate-400 block pr-5 font-mono">
+                            {String(item.requested_time).slice(0, 5)}
+                          </span>
+                        )}
+                      </td>
+
                       {/* Request Reason */}
                       <td className="py-3.5 px-4">
                         <p
@@ -651,16 +691,36 @@ export function AppointmentManagement() {
                         {formatDateTime(item.created_at)}
                       </td>
 
-                      {/* Decided By & Date */}
-                      <td className="py-3.5 px-4 whitespace-nowrap text-slate-600">
-                        {item.status !== "pending" && (item.decided_by_display || item.decided_by_username) ? (
-                          <div className="space-y-0.5">
-                            <span className="font-semibold text-slate-800 block">
-                              {item.decided_by_display || item.decided_by_username}
-                            </span>
-                            <span className="text-[10px] text-slate-400 block">
-                              {formatDateTime(item.decided_at)}
-                            </span>
+                      {/* Decision Details Column */}
+                      <td className="py-3.5 px-4 text-slate-600 max-w-xs">
+                        {item.status !== "pending" ? (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1 text-[11px]">
+                              <span className="font-semibold text-slate-800">
+                                {item.decided_by_display || item.decided_by_username || "الإدارة"}
+                              </span>
+                              {item.decided_at && (
+                                <span className="text-slate-400 text-[10px]">
+                                  ({formatDateTime(item.decided_at)})
+                                </span>
+                              )}
+                            </div>
+                            {item.status === "approved" && item.approval_note && (
+                              <p
+                                className="text-[11px] text-emerald-800 bg-emerald-50 px-2 py-1 rounded-md border border-emerald-100 line-clamp-1"
+                                title={`ملاحظة الإدارة: ${item.approval_note}`}
+                              >
+                                ملاحظة: {item.approval_note}
+                              </p>
+                            )}
+                            {item.status === "rejected" && item.decision_reason && (
+                              <p
+                                className="text-[11px] text-rose-800 bg-rose-50 px-2 py-1 rounded-md border border-rose-100 line-clamp-1"
+                                title={`سبب الرفض: ${item.decision_reason}`}
+                              >
+                                السبب: {item.decision_reason}
+                              </p>
+                            )}
                           </div>
                         ) : (
                           <span className="text-slate-400 text-[11px]">-</span>
@@ -742,14 +802,25 @@ export function AppointmentManagement() {
                     <div>{renderStatusBadge(item.status, item.status_display)}</div>
                   </div>
 
-                  {/* Requested Date Highlight */}
-                  <div className="flex items-center justify-between text-xs bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                    <span className="text-slate-500 font-medium text-[11px]">
-                      التاريخ المطلوب للحضور:
-                    </span>
-                    <div className="flex items-center gap-1 font-bold text-teal-800">
-                      <Calendar className="w-3.5 h-3.5 text-teal-600" />
-                      <span>{item.requested_date}</span>
+                  {/* Requested Date & Time Highlight */}
+                  <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                    <div>
+                      <span className="text-slate-500 font-medium text-[10px] block mb-0.5">
+                        التاريخ المطلوب:
+                      </span>
+                      <div className="flex items-center gap-1 font-bold text-teal-800">
+                        <Calendar className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                        <span>{item.requested_date}</span>
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 font-medium text-[10px] block mb-0.5">
+                        الساعة المطلوبة:
+                      </span>
+                      <div className="flex items-center gap-1 font-bold text-teal-700">
+                        <Clock className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                        <span>{formatTimeOnly(item.requested_time)}</span>
+                      </div>
                     </div>
                   </div>
 
@@ -767,23 +838,37 @@ export function AppointmentManagement() {
                   </div>
 
                   {/* If Decided: Decision Details Box */}
-                  {item.status !== "pending" && item.decision_reason && (
+                  {item.status !== "pending" && (
                     <div
-                      className={`p-2.5 rounded-xl text-xs space-y-1 border ${
+                      className={`p-2.5 rounded-xl text-xs space-y-1.5 border ${
                         item.status === "approved"
                           ? "bg-emerald-50/50 border-emerald-100 text-emerald-900"
                           : "bg-rose-50/50 border-rose-100 text-rose-900"
                       }`}
                     >
                       <div className="flex items-center justify-between text-[11px] font-bold">
-                        <span>سبب القرار:</span>
+                        <span>
+                          {item.status === "approved" ? "تم القبول بواسطة:" : "سبب الرفض:"}
+                        </span>
                         <span className="text-[10px] font-normal text-slate-500">
                           {item.decided_by_display || item.decided_by_username}
                         </span>
                       </div>
-                      <p className="text-xs font-medium leading-relaxed">
-                        {item.decision_reason}
-                      </p>
+                      {item.status === "rejected" && item.decision_reason && (
+                        <p className="text-xs font-medium leading-relaxed">
+                          {item.decision_reason}
+                        </p>
+                      )}
+                      {item.status === "approved" && item.approval_note && (
+                        <div className="pt-1.5 border-t border-emerald-100">
+                          <span className="text-[10px] text-emerald-700 font-bold block mb-0.5">
+                            ملاحظة الإدارة لولي الأمر:
+                          </span>
+                          <p className="text-xs font-medium leading-relaxed text-emerald-950">
+                            {item.approval_note}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -888,15 +973,20 @@ export function AppointmentManagement() {
                 )}
               </div>
 
-              {/* Requested Date */}
+              {/* Requested Date & Time */}
               <div>
                 <span className="text-slate-400 font-semibold block mb-0.5">
-                  التاريخ المطلوب للحضور:
+                  الموعد المطلوب للحضور:
                 </span>
-                <span className="font-bold text-teal-800 block text-sm">
-                  {selectedAppointment.requested_date}
-                </span>
-                <span className="text-[11px] text-slate-500 block">
+                <div className="flex items-center gap-1.5 font-bold text-teal-800 text-sm">
+                  <Calendar className="w-4 h-4 text-teal-600 shrink-0" />
+                  <span>{selectedAppointment.requested_date}</span>
+                </div>
+                <div className="flex items-center gap-1.5 font-semibold text-teal-700 text-xs mt-1">
+                  <Clock className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                  <span>الساعة: {formatTimeOnly(selectedAppointment.requested_time)}</span>
+                </div>
+                <span className="text-[11px] text-slate-400 block mt-0.5">
                   {formatDateOnly(selectedAppointment.requested_date)}
                 </span>
               </div>
@@ -957,6 +1047,16 @@ export function AppointmentManagement() {
                     <p className="text-xs font-medium leading-relaxed text-emerald-800">
                       {selectedAppointment.decision_reason || "تم قبول وتأكيد طلب الموعد بنجاح"}
                     </p>
+                    {selectedAppointment.approval_note && (
+                      <div className="mt-2.5 pt-2 border-t border-emerald-200/60">
+                        <span className="text-[11px] font-bold text-emerald-900 block mb-1">
+                          ملاحظة الإدارة لولي الأمر:
+                        </span>
+                        <div className="bg-white/85 p-2.5 rounded-xl border border-emerald-200 text-xs text-emerald-950 leading-relaxed whitespace-pre-wrap font-medium">
+                          {selectedAppointment.approval_note}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1075,6 +1175,14 @@ export function AppointmentManagement() {
                   <strong className="text-slate-900">
                     {targetAppointment.requested_date}
                   </strong>
+                  {targetAppointment.requested_time && (
+                    <>
+                      {" "}الساعة{" "}
+                      <strong className="text-slate-900">
+                        {formatTimeOnly(targetAppointment.requested_time)}
+                      </strong>
+                    </>
+                  )}
                 </p>
               </div>
             </div>
@@ -1086,7 +1194,7 @@ export function AppointmentManagement() {
               </Alert>
             )}
 
-            {/* Decision Reason Input (Only for reject, confirmation for approve) */}
+            {/* Decision Reason Input (Only for reject, confirmation & optional note for approve) */}
             {decisionModalType === "reject" ? (
               <div className="space-y-1.5">
                 <label
@@ -1109,8 +1217,33 @@ export function AppointmentManagement() {
                 />
               </div>
             ) : (
-              <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-950 leading-relaxed">
-                هل أنت متأكد من رغبتك في الموافقة على طلب الموعد المحدد؟ سيتم تغيير حالة الطلب مباشرة إلى <strong>مقبول</strong> وتوثيق القرار باسمك.
+              <div className="space-y-3">
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-950 leading-relaxed">
+                  سيتم تغيير حالة الطلب مباشرة إلى <strong>مقبول</strong> وتوثيق القرار باسمك.
+                </div>
+
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="approval_note"
+                    className="block text-xs font-bold text-slate-800"
+                  >
+                    ملاحظة لولي الأمر <span className="text-slate-400 font-normal">(اختياري)</span>
+                  </label>
+                  <textarea
+                    id="approval_note"
+                    rows={3}
+                    value={approvalNote}
+                    onChange={(e) => {
+                      setApprovalNote(e.target.value);
+                      if (decisionModalError) setDecisionModalError(null);
+                    }}
+                    placeholder="مثال: يرجى الحضور لمكتب الإدارة في الدور الأرضي مع إحضار الأوراق المطلوبة..."
+                    className="w-full text-xs border border-slate-200 rounded-xl p-3 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none placeholder:text-slate-400 leading-relaxed resize-none font-medium"
+                  />
+                  <p className="text-[11px] text-slate-400">
+                    يمكنك كتابة توجيهات إضافية ستظهر لولي الأمر في حسابه عند قبول الموعد.
+                  </p>
+                </div>
               </div>
             )}
 

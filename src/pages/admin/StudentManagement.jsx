@@ -1,7 +1,13 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../../api";
 import { useAuthStore } from "../../store/useAuthStore";
-import { isTeacher, canManageStudents } from "../../utils/permissionUtils";
+import {
+  isTeacher,
+  canManageStudents,
+  canViewStudentProfile,
+  getHomeRouteForRole,
+} from "../../utils/permissionUtils";
 import {
   parseApiError,
   getApiErrorCode,
@@ -14,6 +20,8 @@ import { Alert } from "../../components/ui/Alert";
 import { Pagination } from "../../components/ui/Pagination";
 import { ConfirmModal } from "../../components/ui/ConfirmModal";
 import { StudentFormModal } from "../../components/students/StudentFormModal";
+import { StudentRegistrationModal } from "../../components/students/StudentRegistrationModal";
+import { StudentHealthProfileModal } from "../../components/students/StudentHealthProfileModal";
 import { EnrollmentFormModal } from "../../components/students/EnrollmentFormModal";
 import { TransferModal } from "../../components/students/TransferModal";
 import { GuardianLinkFormModal } from "../../components/students/GuardianLinkFormModal";
@@ -35,12 +43,42 @@ import {
   School,
   Lock,
   UserCheck,
+  HeartPulse,
+  FileText,
 } from "lucide-react";
 
 export function StudentManagement() {
-  const { user } = useAuthStore();
-  const teacherReadOnly = isTeacher(user);
-  const canManage = canManageStudents(user);
+  const { user, requesterRole, permissions, hasPermission } = useAuthStore();
+  const navigate = useNavigate();
+  const basePath = getHomeRouteForRole(user);
+  const canViewProfile = canViewStudentProfile(user, requesterRole, permissions);
+
+  // Student permissions
+  const canAddStudent = hasPermission("students.add_student");
+  const canChangeStudent = hasPermission("students.change_student");
+  const canDeleteStudent = hasPermission("students.delete_student");
+
+  // Enrollment permissions
+  const canAddEnrollment = hasPermission("students.add_enrollment");
+  const canChangeEnrollment = hasPermission("students.change_enrollment");
+  const canTransferStudent = hasPermission("students.transfer_student");
+  const canDeleteEnrollment = hasPermission("students.delete_enrollment");
+
+  // Guardian permissions
+  const canAddGuardianLink = hasPermission("students.add_guardianstudent");
+  const canDeleteGuardianLink = hasPermission("students.delete_guardianstudent");
+
+  const canManageAny =
+    canAddStudent ||
+    canChangeStudent ||
+    canDeleteStudent ||
+    canAddEnrollment ||
+    canChangeEnrollment ||
+    canTransferStudent ||
+    canDeleteEnrollment ||
+    canAddGuardianLink ||
+    canDeleteGuardianLink;
+  const isReadOnly = !canManageAny;
 
   // Active Tab: 'students' | 'enrollments' | 'guardians'
   const [activeTab, setActiveTab] = useState("students");
@@ -58,6 +96,11 @@ export function StudentManagement() {
   const [studentTotal, setStudentTotal] = useState(0);
   const [studentHasNext, setStudentHasNext] = useState(false);
   const [studentHasPrev, setStudentHasPrev] = useState(false);
+
+  // Registration & Health Profile Modals State
+  const [isRegistrationModalOpen, setIsRegistrationModalOpen] = useState(false);
+  const [isHealthModalOpen, setIsHealthModalOpen] = useState(false);
+  const [selectedHealthStudent, setSelectedHealthStudent] = useState(null);
 
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState(null);
@@ -259,13 +302,14 @@ export function StudentManagement() {
   // STUDENT HANDLERS (Create, Edit, Delete, Deactivate, Activate)
   // =========================================================
   const handleStudentSubmit = async (formData) => {
-    if (editingStudent) {
+    if (editingStudent?.id) {
       const res = await api.students.updateStudent(editingStudent.id, formData);
       toast.success(getApiSuccessMessage(res, "تم تحديث بيانات الطالب بنجاح."));
     } else {
       const res = await api.students.createStudent(formData);
       toast.success(getApiSuccessMessage(res, "تم إنشاء سجل الطالب بنجاح."));
     }
+    setEditingStudent(null);
     fetchStudents(1);
   };
 
@@ -351,13 +395,14 @@ export function StudentManagement() {
   // ENROLLMENT & TRANSFER HANDLERS
   // =========================================================
   const handleEnrollmentSubmit = async (formData) => {
-    if (editingEnrollment) {
+    if (editingEnrollment?.id) {
       const res = await api.students.updateEnrollment(editingEnrollment.id, formData);
       toast.success(getApiSuccessMessage(res, "تم تحديث بيانات التسجيل بنجاح."));
     } else {
       const res = await api.students.createEnrollment(formData);
       toast.success(getApiSuccessMessage(res, "تم تسجيل الطالب في الشعبة بنجاح."));
     }
+    setEditingEnrollment(null);
     fetchEnrollments(1);
   };
 
@@ -432,10 +477,10 @@ export function StudentManagement() {
             <h2 className="text-xl font-bold text-slate-900">
               إدارة شؤون الطلاب والتسجيل وأولياء الأمور
             </h2>
-            {teacherReadOnly && (
+            {isReadOnly && (
               <span className="flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-200 text-xs px-2.5 py-0.5 rounded-full font-bold">
                 <Lock className="w-3 h-3" />
-                <span>وضع المعلم (قراءة فقط)</span>
+                <span>قراءة فقط</span>
               </span>
             )}
           </div>
@@ -465,20 +510,19 @@ export function StudentManagement() {
             />
           </Button>
 
-          {canManage && activeTab === "students" && (
+          {canAddStudent && activeTab === "students" && (
             <Button
               onClick={() => {
-                setEditingStudent(null);
-                setIsStudentModalOpen(true);
+                setIsRegistrationModalOpen(true);
               }}
               className="gap-2"
             >
               <Plus className="w-4 h-4" />
-              <span>إضافة طالب جديد</span>
+              <span>تسجيل طالب جديد</span>
             </Button>
           )}
 
-          {canManage && activeTab === "enrollments" && (
+          {canAddEnrollment && activeTab === "enrollments" && (
             <Button
               onClick={() => {
                 setEditingEnrollment(null);
@@ -491,7 +535,7 @@ export function StudentManagement() {
             </Button>
           )}
 
-          {canManage && activeTab === "guardians" && (
+          {canAddGuardianLink && activeTab === "guardians" && (
             <Button
               onClick={() => {
                 fetchMetadata();
@@ -618,14 +662,23 @@ export function StudentManagement() {
                     <th className="py-3 px-4">تاريخ الميلاد</th>
                     <th className="py-3 px-4">الجنس</th>
                     <th className="py-3 px-4">الحالة</th>
-                    {canManage && <th className="py-3 px-4 text-center">الإجراءات</th>}
+                    {(canChangeStudent || canDeleteStudent || canViewProfile) && (
+                      <th className="py-3 px-4 text-center">الإجراءات</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 bg-white">
                   {students.map((st) => (
                     <tr key={st.id} className="hover:bg-slate-50">
                       <td className="py-3 px-4 font-bold text-slate-900">
-                        {st.full_name || `${st.first_name} ${st.last_name}`}
+                        <div>
+                          <span>{st.full_name || `${st.first_name} ${st.last_name}`}</span>
+                          {(st.first_name_en || st.last_name_en) && (
+                            <span className="block text-[10px] font-mono font-normal text-slate-400 dir-ltr text-right">
+                              {[st.first_name_en, st.last_name_en].filter(Boolean).join(" ")}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 px-4 text-slate-700">{st.father_name || "-"}</td>
                       <td className="py-3 px-4 text-slate-700">{st.mother_name || "-"}</td>
@@ -644,43 +697,79 @@ export function StudentManagement() {
                           <Badge variant="danger">معطل</Badge>
                         )}
                       </td>
-                      {canManage && (
+                      {(canChangeStudent || canDeleteStudent || canViewProfile) && (
                         <td className="py-3 px-4 text-center">
                           <div className="flex items-center justify-center gap-1.5">
-                            <button
-                              onClick={() => {
-                                setEditingStudent(st);
-                                setIsStudentModalOpen(true);
-                              }}
-                              className="p-1 text-slate-600 hover:text-teal-600 rounded transition-colors"
-                              title="تعديل بيانات الطالب"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
+                            {/* Comprehensive Profile Action */}
+                            {canViewProfile && (
+                              <button
+                                onClick={() => navigate(`${basePath}/students/${st.id}/profile`)}
+                                className="p-1 text-slate-600 hover:text-teal-700 hover:bg-teal-50 rounded transition-colors"
+                                title="الملف الشامل للطالب"
+                              >
+                                <FileText className="w-4 h-4 text-teal-600" />
+                              </button>
+                            )}
 
-                            <button
-                              onClick={() => handleToggleStudentActive(st)}
-                              className={`p-1 rounded transition-colors ${
-                                st.is_active !== false
-                                  ? "text-slate-600 hover:text-amber-600"
-                                  : "text-slate-600 hover:text-emerald-600"
-                              }`}
-                              title={st.is_active !== false ? "تعطيل حساب الطالب" : "تفعيل حساب الطالب"}
-                            >
-                              {st.is_active !== false ? (
-                                <PowerOff className="w-4 h-4" />
-                              ) : (
-                                <CheckCircle className="w-4 h-4" />
-                              )}
-                            </button>
+                            {/* Health Profile Action */}
+                            {canChangeStudent && (
+                              <button
+                                onClick={() => {
+                                  setSelectedHealthStudent(st);
+                                  setIsHealthModalOpen(true);
+                                }}
+                                className="p-1 text-slate-600 hover:text-rose-600 rounded transition-colors"
+                                title="عرض وتعديل الملف الصحي للطالب"
+                              >
+                                <HeartPulse className="w-4 h-4" />
+                              </button>
+                            )}
 
-                            <button
-                              onClick={() => handleDeleteStudent(st)}
-                              className="p-1 text-slate-600 hover:text-rose-600 rounded transition-colors"
-                              title="حذف الطالب"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {/* Edit Student Info */}
+                            {canChangeStudent && (
+                              <button
+                                onClick={() => {
+                                  setEditingStudent(st);
+                                  setIsStudentModalOpen(true);
+                                }}
+                                className="p-1 text-slate-600 hover:text-teal-600 rounded transition-colors"
+                                title="تعديل بيانات الطالب"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                            )}
+
+                            {canChangeStudent && (
+                              <button
+                                onClick={() => handleToggleStudentActive(st)}
+                                className={`p-1 rounded transition-colors ${
+                                  st.is_active !== false
+                                    ? "text-slate-600 hover:text-amber-600"
+                                    : "text-slate-600 hover:text-emerald-600"
+                                }`}
+                                title={
+                                  st.is_active !== false
+                                    ? "تعطيل حساب الطالب"
+                                    : "تفعيل حساب الطالب"
+                                }
+                              >
+                                {st.is_active !== false ? (
+                                  <PowerOff className="w-4 h-4" />
+                                ) : (
+                                  <CheckCircle className="w-4 h-4" />
+                                )}
+                              </button>
+                            )}
+
+                            {canDeleteStudent && (
+                              <button
+                                onClick={() => handleDeleteStudent(st)}
+                                className="p-1 text-slate-600 hover:text-rose-600 rounded transition-colors"
+                                title="حذف الطالب"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       )}
@@ -764,14 +853,32 @@ export function StudentManagement() {
                     <th className="py-3 px-4">الصف الدراسي</th>
                     <th className="py-3 px-4">الشعبة المقيد بها</th>
                     <th className="py-3 px-4">تاريخ التسجيل</th>
-                    {canManage && <th className="py-3 px-4 text-center">الإجراءات</th>}
+                    {(canChangeEnrollment || canTransferStudent || canDeleteEnrollment) && (
+                      <th className="py-3 px-4 text-center">الإجراءات</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 bg-white">
                   {enrollments.map((enr) => (
                     <tr key={enr.id} className="hover:bg-slate-50">
                       <td className="py-3 px-4 font-bold text-slate-900">
-                        {enr.student_display || enr.student?.full_name || enr.student}
+                        <div className="flex items-center gap-2">
+                          <span>{enr.student_display || enr.student?.full_name || enr.student}</span>
+                          {canViewProfile && (enr.student_id || enr.student?.id || (typeof enr.student === "string" && enr.student.length > 20)) && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                navigate(
+                                  `${basePath}/students/${enr.student_id || enr.student?.id || enr.student}/profile`
+                                )
+                              }
+                              className="p-1 text-slate-400 hover:text-teal-700 hover:bg-teal-50 rounded transition-colors"
+                              title="عرض الملف الشامل للطالب"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-teal-600" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 px-4 text-slate-600">
                         {enr.academic_year_display || enr.academic_year?.name || "-"}
@@ -787,42 +894,48 @@ export function StudentManagement() {
                       <td className="py-3 px-4 font-mono text-slate-600">
                         {enr.enrollment_date || "-"}
                       </td>
-                      {canManage && (
+                      {(canChangeEnrollment || canTransferStudent || canDeleteEnrollment) && (
                         <td className="py-3 px-4 text-center">
                           <div className="flex items-center justify-center gap-1.5">
                             {/* Transfer Student Action */}
-                            <button
-                              onClick={() => {
-                                setTransferringEnrollment(enr);
-                                setIsTransferModalOpen(true);
-                              }}
-                              className="px-2 py-1 text-[11px] font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg flex items-center gap-1 transition-colors"
-                              title="نقل الطالب إلى شعبة أخرى"
-                            >
-                              <ArrowLeftRight className="w-3.5 h-3.5" />
-                              <span>نقل</span>
-                            </button>
+                            {canTransferStudent && (
+                              <button
+                                onClick={() => {
+                                  setTransferringEnrollment(enr);
+                                  setIsTransferModalOpen(true);
+                                }}
+                                className="px-2 py-1 text-[11px] font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg flex items-center gap-1 transition-colors"
+                                title="نقل الطالب إلى شعبة أخرى"
+                              >
+                                <ArrowLeftRight className="w-3.5 h-3.5" />
+                                <span>نقل</span>
+                              </button>
+                            )}
 
                             {/* Edit Enrollment */}
-                            <button
-                              onClick={() => {
-                                setEditingEnrollment(enr);
-                                setIsEnrollmentModalOpen(true);
-                              }}
-                              className="p-1 text-slate-600 hover:text-teal-600 rounded transition-colors"
-                              title="تعديل التسجيل"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
+                            {canChangeEnrollment && (
+                              <button
+                                onClick={() => {
+                                  setEditingEnrollment(enr);
+                                  setIsEnrollmentModalOpen(true);
+                                }}
+                                className="p-1 text-slate-600 hover:text-teal-600 rounded transition-colors"
+                                title="تعديل التسجيل"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                            )}
 
                             {/* Delete Enrollment */}
-                            <button
-                              onClick={() => handleDeleteEnrollment(enr)}
-                              className="p-1 text-slate-600 hover:text-rose-600 rounded transition-colors"
-                              title="حذف التسجيل"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {canDeleteEnrollment && (
+                              <button
+                                onClick={() => handleDeleteEnrollment(enr)}
+                                className="p-1 text-slate-600 hover:text-rose-600 rounded transition-colors"
+                                title="حذف التسجيل"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       )}
@@ -886,8 +999,9 @@ export function StudentManagement() {
                     <th className="py-3 px-4">ولي الأمر</th>
                     <th className="py-3 px-4">اسم المستخدم لولي الأمر</th>
                     <th className="py-3 px-4">الطالب المرتبط</th>
+                    <th className="py-3 px-4">صلة القرابة</th>
                     <th className="py-3 px-4">حالة الرابط</th>
-                    {canManage && <th className="py-3 px-4 text-center">الإجراءات</th>}
+                    {canDeleteGuardianLink && <th className="py-3 px-4 text-center">الإجراءات</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 bg-white">
@@ -902,6 +1016,11 @@ export function StudentManagement() {
                       <td className="py-3 px-4 font-bold text-teal-800">
                         {link.student_display || link.student}
                       </td>
+                      <td className="py-3 px-4 text-slate-700">
+                        <span className="bg-slate-100 text-slate-800 px-2.5 py-0.5 rounded-lg text-xs font-semibold border border-slate-200">
+                          {link.relationship || "ولي أمر"}
+                        </span>
+                      </td>
                       <td className="py-3 px-4">
                         {link.is_active !== false ? (
                           <Badge variant="success">نشط</Badge>
@@ -909,7 +1028,7 @@ export function StudentManagement() {
                           <Badge variant="danger">معطل</Badge>
                         )}
                       </td>
-                      {canManage && (
+                      {canDeleteGuardianLink && (
                         <td className="py-3 px-4 text-center">
                           <button
                             onClick={() => handleDeleteGuardianLink(link)}
@@ -942,18 +1061,56 @@ export function StudentManagement() {
       {/* MODALS */}
       {/* ========================================================= */}
 
+      {/* 0. Unified Student Registration Modal (POST /api/v1/students/register/) */}
+      <StudentRegistrationModal
+        isOpen={isRegistrationModalOpen}
+        onClose={() => setIsRegistrationModalOpen(false)}
+        onSuccess={() => {
+          fetchStudents(1);
+          fetchMetadata();
+        }}
+        onProceedToEnrollment={(newStudent) => {
+          fetchStudents(1);
+          fetchMetadata();
+          setEditingEnrollment({
+            student: newStudent?.id,
+            student_display: newStudent?.full_name || `${newStudent?.first_name || ""} ${newStudent?.last_name || ""}`.trim(),
+            father_name: newStudent?.father_name,
+          });
+          setIsEnrollmentModalOpen(true);
+          setActiveTab("enrollments");
+        }}
+      />
+
+      {/* 0.1 Student Health Profile Modal (GET & PATCH /api/v1/students/{id}/health-profile/) */}
+      <StudentHealthProfileModal
+        isOpen={isHealthModalOpen}
+        onClose={() => {
+          setIsHealthModalOpen(false);
+          setSelectedHealthStudent(null);
+        }}
+        student={selectedHealthStudent}
+      />
+
       {/* 1. Student Form Modal */}
       <StudentFormModal
         isOpen={isStudentModalOpen}
         onClose={() => setIsStudentModalOpen(false)}
         onSubmit={handleStudentSubmit}
         initialStudent={editingStudent}
+        onOpenHealthProfile={(st) => {
+          setSelectedHealthStudent(st);
+          setIsHealthModalOpen(true);
+        }}
       />
 
       {/* 2. Enrollment Form Modal */}
       <EnrollmentFormModal
         isOpen={isEnrollmentModalOpen}
-        onClose={() => setIsEnrollmentModalOpen(false)}
+        onClose={() => {
+          setIsEnrollmentModalOpen(false);
+          setEditingEnrollment(null);
+        }}
         onSubmit={handleEnrollmentSubmit}
         initialEnrollment={editingEnrollment}
         students={students}

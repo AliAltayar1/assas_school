@@ -16,9 +16,11 @@ import { toast } from "sonner";
 import { Plus, Edit2, Trash2, RefreshCw, Search, Lock } from "lucide-react";
 
 export function SectionsTab() {
-  const { user } = useAuthStore();
-  const teacherReadOnly = isTeacher(user);
-  const canManage = canManageAcademics(user);
+  const { hasPermission } = useAuthStore();
+  const canAdd = hasPermission("academics.add_section");
+  const canChange = hasPermission("academics.change_section");
+  const canDelete = hasPermission("academics.delete_section");
+  const isReadOnly = !canAdd && !canChange && !canDelete;
 
   const [sections, setSections] = useState([]);
   const [years, setYears] = useState([]);
@@ -69,7 +71,9 @@ export function SectionsTab() {
       if (searchTerm.trim()) params.search = searchTerm.trim();
 
       const res = await api.academics.getSections(params);
+      console.log(res);
       const { results } = extractPaginatedList(res);
+      console.log(results);
       setSections(results);
     } catch (err) {
       setError(parseApiError(err, "فشل تحميل قائمة الشعب الصفية."));
@@ -95,7 +99,10 @@ export function SectionsTab() {
 
   const handleFormSubmit = async (formData) => {
     if (editingSection) {
-      const res = await api.academics.updateSection(editingSection.id, formData);
+      const res = await api.academics.updateSection(
+        editingSection.id,
+        formData,
+      );
       toast.success(getApiSuccessMessage(res, "تم تحديث الشعبة بنجاح."));
     } else {
       const res = await api.academics.createSection(formData);
@@ -117,12 +124,21 @@ export function SectionsTab() {
         try {
           const res = await api.academics.deleteSection(section.id);
           toast.success(getApiSuccessMessage(res, "تم حذف الشعبة بنجاح."));
-          setConfirmConfig((prev) => ({ ...prev, isOpen: false, isLoading: false }));
+          setConfirmConfig((prev) => ({
+            ...prev,
+            isOpen: false,
+            isLoading: false,
+          }));
           fetchSections();
         } catch (err) {
           setConfirmConfig((prev) => ({ ...prev, isLoading: false }));
           // Server error message (e.g. SECTION_DELETE_BLOCKED)
-          toast.error(parseApiError(err, "لا يمكن حذف هذه الشعبة لأنها تحتوي على طلاب أو تكليفات تعليمية مرتبطة بها."));
+          toast.error(
+            parseApiError(
+              err,
+              "لا يمكن حذف هذه الشعبة لأنها تحتوي على طلاب أو تكليفات تعليمية مرتبطة بها.",
+            ),
+          );
         }
       },
     });
@@ -182,17 +198,19 @@ export function SectionsTab() {
             disabled={isLoading}
             title="تحديث البيانات"
           >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`}
+            />
           </Button>
 
-          {canManage && (
+          {canAdd && (
             <Button onClick={handleOpenCreate} className="gap-2">
               <Plus className="w-4 h-4" />
               <span>إضافة شعبة جديدة</span>
             </Button>
           )}
 
-          {teacherReadOnly && (
+          {isReadOnly && (
             <span className="flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-200 text-xs px-2.5 py-1 rounded-lg font-bold">
               <Lock className="w-3.5 h-3.5" />
               <span>قراءة فقط</span>
@@ -220,9 +238,12 @@ export function SectionsTab() {
               <tr>
                 <th className="py-3 px-4">اسم الشعبة</th>
                 <th className="py-3 px-4">الصف الدراسي</th>
+                <th className="py-3 px-4">عدد الطلاب المسجلين</th>
                 <th className="py-3 px-4">العام الدراسي</th>
                 <th className="py-3 px-4">الحالة</th>
-                {canManage && <th className="py-3 px-4 text-center">الإجراءات</th>}
+                {(canChange || canDelete) && (
+                  <th className="py-3 px-4 text-center">الإجراءات</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
@@ -234,6 +255,11 @@ export function SectionsTab() {
                   <td className="py-3 px-4 text-slate-700">
                     {sec.grade_level_display || sec.grade_level}
                   </td>
+                  <td className="py-3 px-4 font-bold text-slate-900">
+                    {sec.students_count > 1
+                      ? `${sec.students_count} طلاب`
+                      : `${sec.students_count} طالب`}
+                  </td>
                   <td className="py-3 px-4 text-slate-600">
                     {sec.academic_year_display || sec.academic_year}
                   </td>
@@ -244,23 +270,27 @@ export function SectionsTab() {
                       <Badge variant="danger">معطلة</Badge>
                     )}
                   </td>
-                  {canManage && (
+                  {(canChange || canDelete) && (
                     <td className="py-3 px-4 text-center">
                       <div className="flex items-center justify-center gap-2">
-                        <button
-                          onClick={() => handleOpenEdit(sec)}
-                          className="p-1 text-slate-600 hover:text-teal-600 rounded transition-colors"
-                          title="تعديل"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteSection(sec)}
-                          className="p-1 text-slate-600 hover:text-rose-600 rounded transition-colors"
-                          title="حذف"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {canChange && (
+                          <button
+                            onClick={() => handleOpenEdit(sec)}
+                            className="p-1 text-slate-600 hover:text-teal-600 rounded transition-colors"
+                            title="تعديل"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={() => handleDeleteSection(sec)}
+                            className="p-1 text-slate-600 hover:text-rose-600 rounded transition-colors"
+                            title="حذف"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   )}

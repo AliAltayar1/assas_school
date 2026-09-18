@@ -7,6 +7,7 @@ import { Alert } from "../../components/ui/Alert";
 import { Pagination } from "../../components/ui/Pagination";
 import { toast } from "sonner";
 import { parseApiError, extractPaginatedList } from "../../utils/errorUtils";
+import { SearchableSelect } from "../../components/ui/SearchableSelect";
 import {
   Award,
   Plus,
@@ -33,21 +34,10 @@ import {
 } from "lucide-react";
 
 export function BehaviorManagement() {
-  const { user } = useAuthStore();
-
-  // Role permissions check
-  const roleCode = (
-    user?.role ||
-    user?.role_code ||
-    user?.role_name ||
-    ""
-  ).toLowerCase();
-  const canManageNotes = [
-    "school_admin",
-    "admin",
-    "supervisor",
-    "educational_supervisor",
-  ].includes(roleCode);
+  const { hasPermission } = useAuthStore();
+  const canAddNote = hasPermission("behavior.add_behaviornote");
+  const canChangeNote = hasPermission("behavior.change_behaviornote");
+  const canDeleteNote = hasPermission("behavior.delete_behaviornote");
 
   // Raw & processed data states
   const [rawNotes, setRawNotes] = useState([]);
@@ -152,6 +142,36 @@ export function BehaviorManagement() {
 
     return gradeSection ? `${studentName} (${gradeSection})` : studentName;
   }, []);
+
+  // Memoized options for SearchableSelect
+  const enrollmentOptions = useMemo(() => {
+    return enrollments.map((enr, idx) => {
+      let studentName =
+        enr.student_name ||
+        enr.student_display ||
+        (typeof enr.student === "object" ? enr.student?.full_name || enr.student?.name : null);
+
+      if (!studentName && enr.student && students.length > 0) {
+        const matchSt = students.find((s) => String(s.id) === String(enr.student));
+        if (matchSt) {
+          studentName = matchSt.full_name || `${matchSt.first_name || ""} ${matchSt.last_name || ""}`.trim();
+        }
+      }
+      if (!studentName) studentName = `طالب #${idx + 1}`;
+
+      const gradeSection =
+        enr.section_display ||
+        enr.grade_level_display ||
+        (enr.section_name && enr.grade_level_name ? `${enr.grade_level_name} - ${enr.section_name}` : "") ||
+        "";
+
+      return {
+        value: enr.id,
+        label: studentName,
+        subtext: gradeSection ? `الشعبة والصف: ${gradeSection}` : "",
+      };
+    });
+  }, [enrollments, students]);
 
   // Helper to extract student and class info for a behavior note
   const getNoteStudentInfo = useCallback(
@@ -591,7 +611,7 @@ export function BehaviorManagement() {
             <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
           </Button>
 
-          {canManageNotes && (
+          {canAddNote && (
             <Button
               onClick={handleOpenCreate}
               className="gap-1.5 text-xs font-bold h-9 px-3.5 shadow-sm bg-teal-600 hover:bg-teal-700 text-white"
@@ -734,21 +754,20 @@ export function BehaviorManagement() {
 
           {/* Student / Enrollment Dropdown Selector */}
           <div>
-            <select
+            <SearchableSelect
+              options={[
+                { value: "", label: "جميع الطلاب (All Students)" },
+                ...enrollmentOptions,
+              ]}
               value={enrollmentFilter}
-              onChange={(e) => {
-                setEnrollmentFilter(e.target.value);
+              onChange={(val) => {
+                setEnrollmentFilter(val);
                 setCurrentPage(1);
               }}
-              className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs bg-slate-50/60 hover:bg-white focus:bg-white font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none transition-colors"
-            >
-              <option value="">جميع الطلاب (All Students)</option>
-              {enrollments.map((enr, idx) => (
-                <option key={enr.id} value={enr.id}>
-                  {getEnrollmentLabel(enr, idx)}
-                </option>
-              ))}
-            </select>
+              placeholder="جميع الطلاب (اكتب للفلترة)..."
+              searchPlaceholder="ابحث باسم الطالب..."
+              allowClear={Boolean(enrollmentFilter)}
+            />
           </div>
 
           {/* Note Type Filter */}
@@ -971,7 +990,7 @@ export function BehaviorManagement() {
                   إعادة ضبط الفلاتر
                 </Button>
               ) : (
-                canManageNotes && (
+                canAddNote && (
                   <Button
                     onClick={handleOpenCreate}
                     className="gap-2 mt-2 font-bold shadow-sm bg-teal-600 hover:bg-teal-700 text-white"
@@ -1094,24 +1113,24 @@ export function BehaviorManagement() {
                               <Eye className="w-4 h-4" />
                             </button>
 
-                            {canManageNotes && (
-                              <>
-                                <button
-                                  onClick={() => handleOpenEdit(row)}
-                                  className="p-1.5 text-teal-600 hover:text-teal-900 hover:bg-teal-50 rounded-lg transition-colors"
-                                  title="تعديل الملاحظة"
-                                >
-                                  <Edit2 className="w-4 h-4" />
-                                </button>
+                            {canChangeNote && (
+                              <button
+                                onClick={() => handleOpenEdit(row)}
+                                className="p-1.5 text-teal-600 hover:text-teal-900 hover:bg-teal-50 rounded-lg transition-colors"
+                                title="تعديل الملاحظة"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                            )}
 
-                                <button
-                                  onClick={() => handleOpenDelete(row)}
-                                  className="p-1.5 text-rose-600 hover:text-rose-900 hover:bg-rose-50 rounded-lg transition-colors"
-                                  title="حذف الملاحظة"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </>
+                            {canDeleteNote && (
+                              <button
+                                onClick={() => handleOpenDelete(row)}
+                                className="p-1.5 text-rose-600 hover:text-rose-900 hover:bg-rose-50 rounded-lg transition-colors"
+                                title="حذف الملاحظة"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                             )}
                           </div>
                         </td>
@@ -1190,23 +1209,23 @@ export function BehaviorManagement() {
                         <span>عرض</span>
                       </button>
 
-                      {canManageNotes && (
-                        <>
-                          <button
-                            onClick={() => handleOpenEdit(row)}
-                            className="flex-1 flex items-center justify-center gap-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs font-bold py-2 px-3 rounded-xl transition-colors border border-teal-200/80"
-                          >
-                            <Edit2 className="w-3.5 h-3.5 text-teal-600" />
-                            <span>تعديل</span>
-                          </button>
+                      {canChangeNote && (
+                        <button
+                          onClick={() => handleOpenEdit(row)}
+                          className="flex-1 flex items-center justify-center gap-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs font-bold py-2 px-3 rounded-xl transition-colors border border-teal-200/80"
+                        >
+                          <Edit2 className="w-3.5 h-3.5 text-teal-600" />
+                          <span>تعديل</span>
+                        </button>
+                      )}
 
-                          <button
-                            onClick={() => handleOpenDelete(row)}
-                            className="flex items-center justify-center gap-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold py-2 px-3 rounded-xl transition-colors border border-rose-200/80"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </>
+                      {canDeleteNote && (
+                        <button
+                          onClick={() => handleOpenDelete(row)}
+                          className="flex items-center justify-center gap-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold py-2 px-3 rounded-xl transition-colors border border-rose-200/80"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       )}
                     </div>
                   </div>
@@ -1285,7 +1304,7 @@ export function BehaviorManagement() {
               </button>
             </div>
 
-            {useManualUuid || enrollments.length === 0 ? (
+            {useManualUuid ? (
               <input
                 type="text"
                 placeholder="أدخل UUID القيد المدرسي للطالب"
@@ -1295,19 +1314,26 @@ export function BehaviorManagement() {
                 required
               />
             ) : (
-              <select
+              <SearchableSelect
+                options={enrollmentOptions}
                 value={createForm.enrollment}
-                onChange={(e) => setCreateForm({ ...createForm, enrollment: e.target.value })}
-                className="w-full px-3 py-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                onChange={(val) =>
+                  setCreateForm((prev) => ({ ...prev, enrollment: val }))
+                }
+                placeholder="-- اختر الطالب / القيد المدرسي (اكتب للبحث) --"
+                searchPlaceholder="اكتب اسم الطالب للبحث..."
+                emptyMessage="لا يوجد طلاب مطابقين للبحث"
+                noOptionsMessage={
+                  enrollments.length === 0
+                    ? "-- جاري تحميل قائمة القيود أو لا توجد قيود مسجلة --"
+                    : "-- لا توجد خيارات متاحة --"
+                }
                 required
-              >
-                <option value="">-- اختر الطالب / القيد المدرسي --</option>
-                {enrollments.map((enr, idx) => (
-                  <option key={enr.id} value={enr.id}>
-                    {getEnrollmentLabel(enr, idx)}
-                  </option>
-                ))}
-              </select>
+                onManualSelect={() => {
+                  setUseManualUuid(true);
+                  setCreateForm((prev) => ({ ...prev, enrollment: "" }));
+                }}
+              />
             )}
           </div>
 

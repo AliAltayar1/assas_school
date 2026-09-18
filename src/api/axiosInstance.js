@@ -115,6 +115,22 @@ axiosInstance.interceptors.response.use(
       }
     }
 
+    if (error.response?.status === 403) {
+      const code = error.response?.data?.code;
+      if (code === "BUSINESS_PERMISSION_DENIED") {
+        window.dispatchEvent(
+          new CustomEvent("business-permission-denied", {
+            detail: {
+              code,
+              message:
+                error.response?.data?.message ||
+                "تم رفض العملية لعدم توفر الصلاحية المطلوبة.",
+            },
+          })
+        );
+      }
+    }
+
     // Always log any other non-recovered API errors to console with full details
     logApiError(error);
 

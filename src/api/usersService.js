@@ -38,4 +38,24 @@ export const usersService = {
     const res = await axiosInstance.post(`/accounts/users/${id}/reset-password/`);
     return res.data;
   },
+
+  // GET /api/v1/accounts/permissions/ - Fetch Full Business Permission Catalog
+  getPermissionCatalog: async () => {
+    const res = await axiosInstance.get('/accounts/permissions/');
+    return res.data;
+  },
+
+  // GET /api/v1/accounts/users/{id}/permissions/ - Fetch Current Permissions for a User
+  getUserPermissions: async (userId) => {
+    const res = await axiosInstance.get(`/accounts/users/${userId}/permissions/`);
+    return res.data;
+  },
+
+  // PUT /api/v1/accounts/users/{id}/permissions/ - Full Replacement of User Permissions
+  updateUserPermissions: async (userId, permissions) => {
+    const res = await axiosInstance.put(`/accounts/users/${userId}/permissions/`, {
+      permissions: Array.isArray(permissions) ? permissions : [],
+    });
+    return res.data;
+  },
 };

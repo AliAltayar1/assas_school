@@ -34,7 +34,9 @@ import {
 } from "lucide-react";
 
 export function RequestManagement() {
-  const { user } = useAuthStore();
+  const { user, hasPermission, isSuperuser } = useAuthStore();
+  const canReply =
+    hasPermission("school_requests.reply_to_request") || isSuperuser;
 
   // Requests Data States
   const [requests, setRequests] = useState([]);
@@ -102,8 +104,8 @@ export function RequestManagement() {
         setError(
           parseApiError(
             err,
-            "حدث خطأ أثناء استرجاع قائمة الشكاوى والاقتراحات والاستفسارات."
-          )
+            "حدث خطأ أثناء استرجاع قائمة الشكاوى والاقتراحات والاستفسارات.",
+          ),
         );
       } finally {
         setIsLoading(false);
@@ -117,7 +119,7 @@ export function RequestManagement() {
       createdFromFilter,
       createdToFilter,
       orderingFilter,
-    ]
+    ],
   );
 
   useEffect(() => {
@@ -209,7 +211,9 @@ export function RequestManagement() {
     }
 
     if (selectedRequest.status === "answered") {
-      setModalError("هذا الطلب تمت الإجابة عليه مسبقاً ولا يمكن الرد عليه مجدداً.");
+      setModalError(
+        "هذا الطلب تمت الإجابة عليه مسبقاً ولا يمكن الرد عليه مجدداً.",
+      );
       return;
     }
 
@@ -219,7 +223,7 @@ export function RequestManagement() {
     try {
       const response = await api.requests.answer(
         selectedRequest.id,
-        responseText.trim()
+        responseText.trim(),
       );
 
       toast.success("تم إرسال رد المدرسة بنجاح واكتمال معالجة الطلب.");
@@ -237,7 +241,9 @@ export function RequestManagement() {
       };
 
       setRequests((prev) =>
-        prev.map((item) => (item.id === selectedRequest.id ? updatedItem : item))
+        prev.map((item) =>
+          item.id === selectedRequest.id ? updatedItem : item,
+        ),
       );
       setSelectedRequest(updatedItem);
       setIsDetailsModalOpen(false);
@@ -245,7 +251,10 @@ export function RequestManagement() {
       // Re-fetch to guarantee synchronized state
       fetchRequests(currentPage);
     } catch (err) {
-      const parsed = parseApiError(err, "فشل إرسال رد المدرسة. يرجى المحاولة لاحقاً.");
+      const parsed = parseApiError(
+        err,
+        "فشل إرسال رد المدرسة. يرجى المحاولة لاحقاً.",
+      );
       setModalError(parsed);
       toast.error(parsed);
     } finally {
@@ -330,7 +339,8 @@ export function RequestManagement() {
             )}
           </div>
           <p className="text-xs text-slate-500 pr-1 leading-relaxed">
-            استقبال ومتابعة طلبات ورسائل أولياء الأمور الواردة من تطبيق الهاتف والرد الرسمي عليها بدقة وفاعلية.
+            استقبال ومتابعة طلبات ورسائل أولياء الأمور الواردة من تطبيق الهاتف
+            والرد الرسمي عليها بدقة وفاعلية.
           </p>
         </div>
 
@@ -343,7 +353,9 @@ export function RequestManagement() {
             title="تحديث القائمة"
             className="h-9 px-3 gap-1.5 text-xs font-semibold w-full sm:w-auto"
           >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`}
+            />
             <span>تحديث</span>
           </Button>
         </div>
@@ -402,13 +414,24 @@ export function RequestManagement() {
             <MessageSquare className="w-5 h-5" />
           </div>
           <div className="text-[11px] space-y-1 flex-1 min-w-0">
-            <span className="text-slate-500 block font-medium">توزيع الأنواع</span>
+            <span className="text-slate-500 block font-medium">
+              توزيع الأنواع
+            </span>
             <div className="flex flex-wrap items-center gap-1.5 font-bold text-slate-700">
-              <span className="text-rose-600 whitespace-nowrap" title="شكاوى">{stats.complaintsCount} شكوى</span>
+              <span className="text-rose-600 whitespace-nowrap" title="شكاوى">
+                {stats.complaintsCount} شكوى
+              </span>
               <span className="text-slate-300">•</span>
-              <span className="text-sky-600 whitespace-nowrap" title="اقتراحات">{stats.suggestionsCount} اقتراح</span>
+              <span className="text-sky-600 whitespace-nowrap" title="اقتراحات">
+                {stats.suggestionsCount} اقتراح
+              </span>
               <span className="text-slate-300">•</span>
-              <span className="text-purple-600 whitespace-nowrap" title="استفسارات">{stats.inquiriesCount} استفسار</span>
+              <span
+                className="text-purple-600 whitespace-nowrap"
+                title="استفسارات"
+              >
+                {stats.inquiriesCount} استفسار
+              </span>
             </div>
           </div>
         </div>
@@ -561,7 +584,9 @@ export function RequestManagement() {
                 }}
                 className="w-full h-8 text-xs border border-slate-200 rounded-lg px-2.5 bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none font-medium"
               >
-                <option value="-created_at">تاريخ الإرسال (الأحدث أولاً)</option>
+                <option value="-created_at">
+                  تاريخ الإرسال (الأحدث أولاً)
+                </option>
                 <option value="created_at">تاريخ الإرسال (الأقدم أولاً)</option>
                 <option value="-answered_at">تاريخ الرد (الأحدث أولاً)</option>
                 <option value="answered_at">تاريخ الرد (الأقدم أولاً)</option>
@@ -613,7 +638,8 @@ export function RequestManagement() {
                   لا توجد طلبات واردة حتى الآن
                 </h3>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  هذه الشاشة مخصصة لعرض ومعالجة الشكاوى والاقتراحات والاستفسارات التي يرسلها أولياء الأمور عبر تطبيق الهاتف.
+                  هذه الشاشة مخصصة لعرض ومعالجة الشكاوى والاقتراحات والاستفسارات
+                  التي يرسلها أولياء الأمور عبر تطبيق الهاتف.
                 </p>
                 <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 text-right text-xs text-slate-600 space-y-1">
                   <div className="flex items-center gap-1.5 font-bold text-slate-700">
@@ -621,7 +647,9 @@ export function RequestManagement() {
                     <span>ملاحظة تقنية:</span>
                   </div>
                   <p className="text-[11px] leading-relaxed text-slate-500">
-                    الـ Backend جاهز بالكامل لاستقبال الطلبات ومعالجتها. بمجرد تفعيل تسجيل دخول الأهالي في تطبيق Flutter وإرسال الطلبات، ستظهر هنا فوراً.
+                    الـ Backend جاهز بالكامل لاستقبال الطلبات ومعالجتها. بمجرد
+                    تفعيل تسجيل دخول الأهالي في تطبيق Flutter وإرسال الطلبات،
+                    ستظهر هنا فوراً.
                   </p>
                 </div>
               </div>
@@ -654,14 +682,17 @@ export function RequestManagement() {
                     >
                       {/* Request Type */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
-                        {renderTypeBadge(item.request_type, item.request_type_display)}
+                        {renderTypeBadge(
+                          item.request_type,
+                          item.request_type_display,
+                        )}
                       </td>
 
                       {/* Guardian Info */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         <div className="flex items-center gap-1.5 font-semibold text-slate-800">
                           <User className="w-3.5 h-3.5 text-slate-400" />
-                          <span>{item.guardian_username || "ولي أمر"}</span>
+                          <span>{item.guardian_full_name || "ولي أمر"}</span>
                         </div>
                       </td>
 
@@ -718,7 +749,7 @@ export function RequestManagement() {
 
                       {/* Action Button */}
                       <td className="py-3.5 px-4 whitespace-nowrap text-center">
-                        {item.status === "new" ? (
+                        {item.status === "new" && canReply ? (
                           <Button
                             size="sm"
                             onClick={() => handleOpenRequest(item)}
@@ -751,30 +782,36 @@ export function RequestManagement() {
                 <div
                   key={item.id}
                   className={`p-3.5 space-y-3 transition-colors ${
-                    item.status === "new" ? "bg-amber-50/20" : "hover:bg-slate-50/60"
+                    item.status === "new"
+                      ? "bg-amber-50/20"
+                      : "hover:bg-slate-50/60"
                   }`}
                 >
                   {/* Card Header: Type Badge, Status Badge, Date */}
                   <div className="flex flex-wrap items-center justify-between gap-1.5">
                     <div className="flex items-center gap-1.5">
-                      {renderTypeBadge(item.request_type, item.request_type_display)}
+                      {renderTypeBadge(
+                        item.request_type,
+                        item.request_type_display,
+                      )}
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        {formatDateTime(item.created_at)}
+                      </span>
+                    </div>
+                    <div>
                       {renderStatusBadge(item.status, item.status_display)}
                     </div>
-                    <span className="text-[10px] text-slate-400 font-medium">
-                      {formatDateTime(item.created_at)}
-                    </span>
                   </div>
 
-                  {/* Metadata Row: Guardian & Student */}
-                  <div className="flex flex-wrap items-center justify-between text-xs gap-2 pt-0.5">
-                    <div className="flex items-center gap-1 font-semibold text-slate-800">
-                      <User className="w-3.5 h-3.5 text-slate-400" />
+                  {/* Guardian & Student Info */}
+                  <div className="flex items-center justify-between text-xs pt-0.5">
+                    <div className="flex items-center gap-1 text-slate-700 font-medium truncate">
+                      <User className="w-3.5 h-3.5 text-teal-600 shrink-0" />
                       <span>{item.guardian_username || "ولي أمر"}</span>
                     </div>
-
                     {item.student_display ? (
-                      <div className="flex items-center gap-1 font-medium text-slate-700 bg-teal-50/60 px-2 py-0.5 rounded-md border border-teal-100">
-                        <GraduationCap className="w-3.5 h-3.5 text-teal-600" />
+                      <div className="flex items-center gap-1 text-slate-700 font-medium truncate">
+                        <GraduationCap className="w-3.5 h-3.5 text-teal-600 shrink-0" />
                         <span>{item.student_display.name}</span>
                       </div>
                     ) : (
@@ -811,7 +848,7 @@ export function RequestManagement() {
 
                   {/* Mobile Action Button */}
                   <div>
-                    {item.status === "new" ? (
+                    {item.status === "new" && canReply ? (
                       <Button
                         size="sm"
                         onClick={() => handleOpenRequest(item)}
@@ -828,7 +865,7 @@ export function RequestManagement() {
                         className="w-full h-8.5 text-xs gap-1.5 font-medium text-slate-700 hover:text-teal-700 hover:border-teal-300"
                       >
                         <Eye className="w-3.5 h-3.5" />
-                        <span>عرض تفاصيل الطلب والرد</span>
+                        <span>عرض تفاصيل الطلب</span>
                       </Button>
                     )}
                   </div>
@@ -874,23 +911,27 @@ export function RequestManagement() {
                 <div className="flex flex-wrap items-center gap-1.5">
                   {renderTypeBadge(
                     selectedRequest.request_type,
-                    selectedRequest.request_type_display
+                    selectedRequest.request_type_display,
                   )}
                   {renderStatusBadge(
                     selectedRequest.status,
-                    selectedRequest.status_display
+                    selectedRequest.status_display,
                   )}
                 </div>
                 <div className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
                   <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                  <span>تاريخ الإرسال: {formatDateTime(selectedRequest.created_at)}</span>
+                  <span>
+                    تاريخ الإرسال: {formatDateTime(selectedRequest.created_at)}
+                  </span>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 text-xs">
                 {/* Guardian Info */}
                 <div className="flex items-center gap-2">
-                  <span className="text-slate-500 font-medium shrink-0">ولي الأمر:</span>
+                  <span className="text-slate-500 font-medium shrink-0">
+                    ولي الأمر:
+                  </span>
                   <span className="font-bold text-slate-900 flex items-center gap-1 truncate">
                     <User className="w-3.5 h-3.5 text-teal-600 shrink-0" />
                     {selectedRequest.guardian_username || "ولي أمر مسجل"}
@@ -899,7 +940,9 @@ export function RequestManagement() {
 
                 {/* Student Info */}
                 <div className="flex items-center gap-2">
-                  <span className="text-slate-500 font-medium shrink-0">الطالب المعني:</span>
+                  <span className="text-slate-500 font-medium shrink-0">
+                    الطالب المعني:
+                  </span>
                   {selectedRequest.student_display ? (
                     <span className="font-bold text-slate-900 flex items-center gap-1 truncate">
                       <GraduationCap className="w-3.5 h-3.5 text-teal-600 shrink-0" />
@@ -933,7 +976,8 @@ export function RequestManagement() {
                     <span>رد المدرسة الرسمي:</span>
                   </label>
                   <div className="p-3.5 sm:p-4 rounded-xl bg-emerald-50/60 border border-emerald-200 text-xs text-slate-800 leading-relaxed whitespace-pre-wrap font-medium shadow-inner break-words">
-                    {selectedRequest.school_response || "تمت مراجعة الطلب واعتماده."}
+                    {selectedRequest.school_response ||
+                      "تمت مراجعة الطلب واعتماده."}
                   </div>
                 </div>
 
@@ -950,7 +994,10 @@ export function RequestManagement() {
                   {selectedRequest.answered_at && (
                     <div className="flex items-center gap-1 text-slate-500 font-medium">
                       <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span>تاريخ الرد: {formatDateTime(selectedRequest.answered_at)}</span>
+                      <span>
+                        تاريخ الرد:{" "}
+                        {formatDateTime(selectedRequest.answered_at)}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -965,9 +1012,12 @@ export function RequestManagement() {
                   </Button>
                 </div>
               </div>
-            ) : (
+            ) : canReply ? (
               /* Dynamic Section: IF NEW -> School Answer Form */
-              <form onSubmit={handleSubmitAnswer} className="space-y-3 pt-2 border-t border-slate-200">
+              <form
+                onSubmit={handleSubmitAnswer}
+                className="space-y-3 pt-2 border-t border-slate-200"
+              >
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="block text-xs font-bold text-slate-800 flex items-center gap-1.5">
@@ -1000,7 +1050,7 @@ export function RequestManagement() {
                       type="button"
                       onClick={() =>
                         handleApplyTemplate(
-                          "تمت مراجعة طلبكم بعناية وسيتم اتخاذ الإجراء الإداري المناسب في أقرب وقت. نشكر تعاونكم وحرصكم الدائم."
+                          "تمت مراجعة طلبكم بعناية وسيتم اتخاذ الإجراء الإداري المناسب في أقرب وقت. نشكر تعاونكم وحرصكم الدائم.",
                         )
                       }
                       className="text-[11px] bg-slate-100 hover:bg-teal-50 hover:text-teal-800 border border-slate-200 hover:border-teal-300 px-2.5 py-1 rounded-lg transition-colors font-medium text-right"
@@ -1011,7 +1061,7 @@ export function RequestManagement() {
                       type="button"
                       onClick={() =>
                         handleApplyTemplate(
-                          "نشكركم على مقترحكم البنّاء، ونفيدكم بأنه قد تم تحويله إلى إدارة المدرسة لدراسة إمكانية تنفيذه وتطوير البيئة المدرسية."
+                          "نشكركم على مقترحكم البنّاء، ونفيدكم بأنه قد تم تحويله إلى إدارة المدرسة لدراسة إمكانية تنفيذه وتطوير البيئة المدرسية.",
                         )
                       }
                       className="text-[11px] bg-slate-100 hover:bg-teal-50 hover:text-teal-800 border border-slate-200 hover:border-teal-300 px-2.5 py-1 rounded-lg transition-colors font-medium text-right"
@@ -1022,7 +1072,7 @@ export function RequestManagement() {
                       type="button"
                       onClick={() =>
                         handleApplyTemplate(
-                          "أهلاً بكم، رداً على استفساركم نود إفادتكم بالتفاصيل التالية: "
+                          "أهلاً بكم، رداً على استفساركم نود إفادتكم بالتفاصيل التالية: ",
                         )
                       }
                       className="text-[11px] bg-slate-100 hover:bg-teal-50 hover:text-teal-800 border border-slate-200 hover:border-teal-300 px-2.5 py-1 rounded-lg transition-colors font-medium text-right"
@@ -1036,7 +1086,9 @@ export function RequestManagement() {
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-2.5 text-right text-xs text-amber-800 flex items-start gap-2">
                   <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                   <p className="text-[11px] leading-relaxed">
-                    <strong>تنبيه:</strong> بمجرد إرسال الرد، سيتم تحويل حالة الطلب تلقائياً إلى <strong>(تمت الإجابة)</strong> وتسجيل اسمك كمسؤول عن الرد، ولن يمكن تعديل أو حذف الرد لاحقاً.
+                    <strong>تنبيه:</strong> بمجرد إرسال الرد، سيتم تحويل حالة
+                    الطلب تلقائياً إلى <strong>(تمت الإجابة)</strong> وتسجيل
+                    اسمك كمسؤول عن الرد، ولن يمكن تعديل أو حذف الرد لاحقاً.
                   </p>
                 </div>
 
@@ -1064,6 +1116,25 @@ export function RequestManagement() {
                   </Button>
                 </div>
               </form>
+            ) : (
+              <div className="space-y-4 pt-2 border-t border-slate-200">
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 flex items-center gap-2">
+                  <Info className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span>
+                    الطلب قيد المراجعة ولا تملك صلاحية الرد على الطلبات
+                    المدرسية.
+                  </span>
+                </div>
+                <div className="flex justify-end pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsDetailsModalOpen(false)}
+                    className="w-full sm:w-auto text-xs px-5"
+                  >
+                    إغلاق النافذة
+                  </Button>
+                </div>
+              </div>
             )}
           </div>
         )}

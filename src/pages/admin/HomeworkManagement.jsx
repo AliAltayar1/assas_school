@@ -7,6 +7,7 @@ import { Alert } from "../../components/ui/Alert";
 import { Pagination } from "../../components/ui/Pagination";
 import { toast } from "sonner";
 import { parseApiError, extractPaginatedList } from "../../utils/errorUtils";
+import { SearchableSelect } from "../../components/ui/SearchableSelect";
 import {
   ClipboardList,
   Plus,
@@ -37,9 +38,11 @@ import {
 } from "lucide-react";
 
 export function HomeworkManagement() {
-  const { user } = useAuthStore();
+  const { user, hasPermission } = useAuthStore();
+  const canAddHomework = hasPermission("homework.add_homework");
+  const canChangeHomework = hasPermission("homework.change_homework");
+  const canDeleteHomework = hasPermission("homework.delete_homework");
 
-  // Role permissions check
   const rawRole = (
     user?.role ||
     user?.role_code ||
@@ -48,12 +51,6 @@ export function HomeworkManagement() {
   ).toLowerCase();
 
   const isTeacher = rawRole === "teacher";
-  const isAdminOrSupervisor = [
-    "school_admin",
-    "admin",
-    "supervisor",
-    "educational_supervisor",
-  ].includes(rawRole);
 
   // Raw & Processed data states
   const [homeworks, setHomeworks] = useState([]);
@@ -240,6 +237,24 @@ export function HomeworkManagement() {
 
     return parts.join(" ");
   }, []);
+
+  // Memoized options for SearchableSelect
+  const assignmentOptions = useMemo(() => {
+    return assignments.map((a) => {
+      const subject = a.subject_display || a.subject_name || "مادة";
+      const grade = a.grade_level_display || a.grade_level_name || "";
+      const section = a.section_display || a.section_name || "";
+      const teacher = a.teacher_display || a.teacher_name || "";
+
+      const classInfo = [grade, section].filter(Boolean).join(" - ");
+
+      return {
+        value: a.id,
+        label: classInfo ? `${subject} (${classInfo})` : subject,
+        subtext: teacher ? `المعلم المكلف: ${teacher}` : "",
+      };
+    });
+  }, [assignments]);
 
   const formatDateTime = (isoString) => {
     if (!isoString) return "";
@@ -575,13 +590,15 @@ export function HomeworkManagement() {
             <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
           </Button>
 
-          <Button
-            onClick={handleOpenCreate}
-            className="gap-1.5 text-xs font-bold h-9 px-3.5 shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span>إضافة واجب جديد</span>
-          </Button>
+          {canAddHomework && (
+            <Button
+              onClick={handleOpenCreate}
+              className="gap-1.5 text-xs font-bold h-9 px-3.5 shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              <span>إضافة واجب جديد</span>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -735,21 +752,20 @@ export function HomeworkManagement() {
               <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                 التكليف الأكاديمي:
               </label>
-              <select
+              <SearchableSelect
+                options={[
+                  { value: "", label: "جميع التكليفات الأكاديمية" },
+                  ...assignmentOptions,
+                ]}
                 value={selectedAssignmentFilter}
-                onChange={(e) => {
-                  setSelectedAssignmentFilter(e.target.value);
+                onChange={(val) => {
+                  setSelectedAssignmentFilter(val);
                   setCurrentPage(1);
                 }}
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white text-xs"
-              >
-                <option value="">جميع التكليفات الأكاديمية</option>
-                {assignments.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {getAssignmentLabel(a)}
-                  </option>
-                ))}
-              </select>
+                placeholder="جميع التكليفات (اكتب للفلترة)..."
+                searchPlaceholder="ابحث بالمادة أو الشعبة أو المعلم..."
+                allowClear={Boolean(selectedAssignmentFilter)}
+              />
             </div>
 
             {/* Filter by Teacher (Admin / Supervisor only) */}
@@ -922,13 +938,15 @@ export function HomeworkManagement() {
                   <span>إعادة تعيين الفلاتر</span>
                 </Button>
               ) : (
-                <Button
-                  onClick={handleOpenCreate}
-                  className="gap-2 mt-2 font-bold shadow-sm"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>إضافة واجب مدرسي جديد</span>
-                </Button>
+                canAddHomework && (
+                  <Button
+                    onClick={handleOpenCreate}
+                    className="gap-2 mt-2 font-bold shadow-sm"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>إضافة واجب مدرسي جديد</span>
+                  </Button>
+                )
               )}
             </div>
           </div>
@@ -1068,21 +1086,25 @@ export function HomeworkManagement() {
                               <Eye className="w-4 h-4" />
                             </button>
 
-                            <button
-                              onClick={() => handleOpenEdit(row)}
-                              className="p-1.5 text-slate-600 hover:text-blue-700 hover:bg-slate-100 rounded-lg transition-colors"
-                              title="تعديل الواجب"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
+                            {canChangeHomework && (
+                              <button
+                                onClick={() => handleOpenEdit(row)}
+                                className="p-1.5 text-slate-600 hover:text-blue-700 hover:bg-slate-100 rounded-lg transition-colors"
+                                title="تعديل الواجب"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                            )}
 
-                            <button
-                              onClick={() => handleOpenDelete(row)}
-                              className="p-1.5 text-slate-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
-                              title="حذف الواجب"
-                            >
-                              <Trash2 className="w-4 h-4 text-rose-500" />
-                            </button>
+                            {canDeleteHomework && (
+                              <button
+                                onClick={() => handleOpenDelete(row)}
+                                className="p-1.5 text-slate-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
+                                title="حذف الواجب"
+                              >
+                                <Trash2 className="w-4 h-4 text-rose-500" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1197,21 +1219,25 @@ export function HomeworkManagement() {
                         <span>التفاصيل</span>
                       </button>
 
-                      <button
-                        onClick={() => handleOpenEdit(row)}
-                        className="flex-1 flex items-center justify-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 text-xs font-bold py-2 px-3 rounded-xl transition-colors border border-blue-200"
-                      >
-                        <Edit2 className="w-3.5 h-3.5 text-blue-600" />
-                        <span>تعديل</span>
-                      </button>
+                      {canChangeHomework && (
+                        <button
+                          onClick={() => handleOpenEdit(row)}
+                          className="flex-1 flex items-center justify-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 text-xs font-bold py-2 px-3 rounded-xl transition-colors border border-blue-200"
+                        >
+                          <Edit2 className="w-3.5 h-3.5 text-blue-600" />
+                          <span>تعديل</span>
+                        </button>
+                      )}
 
-                      <button
-                        onClick={() => handleOpenDelete(row)}
-                        className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl transition-colors border border-rose-200"
-                        title="حذف الواجب"
-                      >
-                        <Trash2 className="w-4 h-4 text-rose-600" />
-                      </button>
+                      {canDeleteHomework && (
+                        <button
+                          onClick={() => handleOpenDelete(row)}
+                          className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl transition-colors border border-rose-200"
+                          title="حذف الواجب"
+                        >
+                          <Trash2 className="w-4 h-4 text-rose-600" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -1296,27 +1322,29 @@ export function HomeworkManagement() {
                 </p>
               </div>
             ) : (
-              <div className="relative">
-                <select
-                  value={createForm.teacher_assignment}
-                  onChange={(e) =>
-                    setCreateForm({
-                      ...createForm,
-                      teacher_assignment: e.target.value,
-                    })
-                  }
-                  className="w-full pl-8 pr-3 py-2 border border-slate-200 rounded-xl text-xs bg-slate-50 font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none appearance-none"
-                  required
-                >
-                  <option value="">-- اختر التكليف الأكاديمي (المادة والشعبة) --</option>
-                  {assignments.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {getAssignmentLabel(a)}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
+              <SearchableSelect
+                options={assignmentOptions}
+                value={createForm.teacher_assignment}
+                onChange={(val) =>
+                  setCreateForm((prev) => ({
+                    ...prev,
+                    teacher_assignment: val,
+                  }))
+                }
+                placeholder="-- اختر التكليف الأكاديمي (اكتب للبحث السريع) --"
+                searchPlaceholder="اكتب اسم المادة أو الشعبة أو المعلم للبحث..."
+                emptyMessage="لا توجد تكليفات أكاديمية مطابقة للبحث"
+                noOptionsMessage={
+                  assignments.length === 0
+                    ? "-- جاري تحميل قائمة التكليفات أو لا توجد تكليفات مسجلة --"
+                    : "-- لا توجد تكليفات أكاديمية متاحة --"
+                }
+                required
+                onManualSelect={() => {
+                  setUseManualUuid(true);
+                  setCreateForm((prev) => ({ ...prev, teacher_assignment: "" }));
+                }}
+              />
             )}
           </div>
 

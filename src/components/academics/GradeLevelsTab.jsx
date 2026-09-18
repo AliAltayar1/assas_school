@@ -16,9 +16,11 @@ import { toast } from "sonner";
 import { Plus, Edit2, Trash2, RefreshCw, Search, Lock } from "lucide-react";
 
 export function GradeLevelsTab() {
-  const { user } = useAuthStore();
-  const teacherReadOnly = isTeacher(user);
-  const canManage = canManageAcademics(user);
+  const { hasPermission } = useAuthStore();
+  const canAdd = hasPermission("academics.add_gradelevel");
+  const canChange = hasPermission("academics.change_gradelevel");
+  const canDelete = hasPermission("academics.delete_gradelevel");
+  const isReadOnly = !canAdd && !canChange && !canDelete;
 
   const [levels, setLevels] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -77,7 +79,10 @@ export function GradeLevelsTab() {
 
   const handleFormSubmit = async (formData) => {
     if (editingLevel) {
-      const res = await api.academics.updateGradeLevel(editingLevel.id, formData);
+      const res = await api.academics.updateGradeLevel(
+        editingLevel.id,
+        formData,
+      );
       toast.success(getApiSuccessMessage(res, "تم تحديث بيانات الصف بنجاح."));
     } else {
       const res = await api.academics.createGradeLevel(formData);
@@ -98,12 +103,23 @@ export function GradeLevelsTab() {
         setConfirmConfig((prev) => ({ ...prev, isLoading: true }));
         try {
           const res = await api.academics.deleteGradeLevel(level.id);
-          toast.success(getApiSuccessMessage(res, "تم حذف الصف الدراسي بنجاح."));
-          setConfirmConfig((prev) => ({ ...prev, isOpen: false, isLoading: false }));
+          toast.success(
+            getApiSuccessMessage(res, "تم حذف الصف الدراسي بنجاح."),
+          );
+          setConfirmConfig((prev) => ({
+            ...prev,
+            isOpen: false,
+            isLoading: false,
+          }));
           fetchLevels();
         } catch (err) {
           setConfirmConfig((prev) => ({ ...prev, isLoading: false }));
-          toast.error(parseApiError(err, "لا يمكن حذف هذا الصف لارتباطه بشُعب أو مواد محمية."));
+          toast.error(
+            parseApiError(
+              err,
+              "لا يمكن حذف هذا الصف لارتباطه بشُعب أو مواد محمية.",
+            ),
+          );
         }
       },
     });
@@ -141,7 +157,9 @@ export function GradeLevelsTab() {
           >
             <option value="">جميع المراحل الدراسية</option>
             <option value="kindergarten">رياض الأطفال (kindergarten)</option>
-            <option value="primary">التعليم الأساسي / الابتدائي (primary)</option>
+            <option value="primary">
+              التعليم الأساسي / الابتدائي (primary)
+            </option>
             <option value="preparatory">المرحلة الإعدادية (preparatory)</option>
             <option value="secondary">المرحلة الثانوية (secondary)</option>
           </select>
@@ -166,17 +184,19 @@ export function GradeLevelsTab() {
             disabled={isLoading}
             title="تحديث البيانات"
           >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`}
+            />
           </Button>
 
-          {canManage && (
+          {canAdd && (
             <Button onClick={handleOpenCreate} className="gap-2">
               <Plus className="w-4 h-4" />
               <span>إضافة صف دراسي جديد</span>
             </Button>
           )}
 
-          {teacherReadOnly && (
+          {isReadOnly && (
             <span className="flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-200 text-xs px-2.5 py-1 rounded-lg font-bold">
               <Lock className="w-3.5 h-3.5" />
               <span>قراءة فقط</span>
@@ -205,7 +225,9 @@ export function GradeLevelsTab() {
                 <th className="py-3 px-4">اسم الصف الدراسي</th>
                 <th className="py-3 px-4">المرحلة الدراسية (Stage)</th>
                 <th className="py-3 px-4">الحالة</th>
-                {canManage && <th className="py-3 px-4 text-center">الإجراءات</th>}
+                {(canChange || canDelete) && (
+                  <th className="py-3 px-4 text-center">الإجراءات</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
@@ -215,7 +237,9 @@ export function GradeLevelsTab() {
                     {level.name}
                   </td>
                   <td className="py-3 px-4">
-                    <Badge variant={stageBadgeVariants[level.stage] || "default"}>
+                    <Badge
+                      variant={stageBadgeVariants[level.stage] || "default"}
+                    >
                       {level.stage_display || level.stage}
                     </Badge>
                   </td>
@@ -226,23 +250,27 @@ export function GradeLevelsTab() {
                       <Badge variant="danger">معطل</Badge>
                     )}
                   </td>
-                  {canManage && (
+                  {(canChange || canDelete) && (
                     <td className="py-3 px-4 text-center">
                       <div className="flex items-center justify-center gap-2">
-                        <button
-                          onClick={() => handleOpenEdit(level)}
-                          className="p-1 text-slate-600 hover:text-teal-600 rounded transition-colors"
-                          title="تعديل"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteLevel(level)}
-                          className="p-1 text-slate-600 hover:text-rose-600 rounded transition-colors"
-                          title="حذف"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {canChange && (
+                          <button
+                            onClick={() => handleOpenEdit(level)}
+                            className="p-1 text-slate-600 hover:text-teal-600 rounded transition-colors"
+                            title="تعديل"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={() => handleDeleteLevel(level)}
+                            className="p-1 text-slate-600 hover:text-rose-600 rounded transition-colors"
+                            title="حذف"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   )}

@@ -29,11 +29,16 @@ export const appointmentsService = {
   },
 
   /**
-   * 3. POST Approve appointment request
+   * 3. POST Approve appointment request with optional approval note
    * @param {string} id - Appointment UUID
+   * @param {string} [approvalNote] - Optional administrative note for the guardian
    */
-  approve: async (id) => {
-    const res = await axiosInstance.post(`/appointments/${id}/approve/`, {});
+  approve: async (id, approvalNote = "") => {
+    const payload = {};
+    if (typeof approvalNote === "string" && approvalNote.trim()) {
+      payload.approval_note = approvalNote.trim();
+    }
+    const res = await axiosInstance.post(`/appointments/${id}/approve/`, payload);
     return res.data;
   },
 

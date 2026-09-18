@@ -1,9 +1,313 @@
 /**
  * Permission Utilities for Asas School Platform.
- * Enforces role-based visibility and access restrictions across the application.
+ * Enforces permission-based visibility and actions across the application.
  */
 
-// Normalized Role Extractor
+import { useAuthStore } from "../store/useAuthStore";
+import { useCallback } from "react";
+
+// ==========================================
+// 1. Module Permission Constant Arrays
+// ==========================================
+
+export const ACADEMICS_PERMISSIONS = [
+  "academics.view_academicyear",
+  "academics.add_academicyear",
+  "academics.change_academicyear",
+  "academics.delete_academicyear",
+  "academics.view_term",
+  "academics.add_term",
+  "academics.change_term",
+  "academics.delete_term",
+  "academics.view_gradelevel",
+  "academics.add_gradelevel",
+  "academics.change_gradelevel",
+  "academics.delete_gradelevel",
+  "academics.view_section",
+  "academics.add_section",
+  "academics.change_section",
+  "academics.delete_section",
+  "academics.view_subject",
+  "academics.add_subject",
+  "academics.change_subject",
+  "academics.delete_subject",
+  "academics.view_gradesubject",
+  "academics.add_gradesubject",
+  "academics.change_gradesubject",
+  "academics.delete_gradesubject",
+];
+
+export const TEACHING_PERMISSIONS = [
+  "teaching.view_teacherassignment",
+  "teaching.add_teacherassignment",
+  "teaching.change_teacherassignment",
+  "teaching.delete_teacherassignment",
+];
+
+export const STUDENT_PERMISSIONS = [
+  "students.view_student",
+  "students.add_student",
+  "students.change_student",
+  "students.delete_student",
+  "students.register_student",
+  "students.view_student_profile",
+  "students.view_studenthealthprofile",
+  "students.change_studenthealthprofile",
+  "students.view_guardianstudent",
+  "students.add_guardianstudent",
+  "students.delete_guardianstudent",
+  "students.view_enrollment",
+  "students.add_enrollment",
+  "students.change_enrollment",
+  "students.transfer_student",
+  "students.delete_enrollment",
+];
+
+export const ATTENDANCE_PERMISSIONS = [
+  "attendance.view_attendancesheet",
+  "attendance.add_attendancesheet",
+  "attendance.change_attendancesheet",
+  "attendance.view_attendancerecord",
+  "attendance.change_attendancerecord",
+];
+
+export const BEHAVIOR_PERMISSIONS = [
+  "behavior.view_behaviornote",
+  "behavior.add_behaviornote",
+  "behavior.change_behaviornote",
+  "behavior.delete_behaviornote",
+];
+
+export const HOMEWORK_PERMISSIONS = [
+  "homework.view_homework",
+  "homework.add_homework",
+  "homework.change_homework",
+  "homework.delete_homework",
+];
+
+export const ANNOUNCEMENT_PERMISSIONS = [
+  "announcements.view_announcement",
+  "announcements.add_announcement",
+  "announcements.change_announcement",
+  "announcements.delete_announcement",
+];
+
+export const REQUEST_PERMISSIONS = [
+  "school_requests.view_schoolrequest",
+  "school_requests.reply_to_request",
+];
+
+export const APPOINTMENT_PERMISSIONS = [
+  "appointments.view_appointmentrequest",
+  "appointments.decide_appointment_request",
+];
+
+export const FINANCE_PERMISSIONS = [
+  "finance.view_gradetuitionplan",
+  "finance.add_gradetuitionplan",
+  "finance.change_gradetuitionplan",
+  "finance.view_studentfinancialaccount",
+  "finance.add_payment",
+  "finance.cancel_payment",
+  "finance.add_studentdiscount",
+  "finance.cancel_discount",
+];
+
+export const GRADES_PERMISSIONS = [
+  "grades.view_assessment",
+  "grades.add_assessment",
+  "grades.change_assessment",
+  "grades.delete_assessment",
+  "grades.create_grade_wide_assessment",
+  "grades.view_studentscore",
+  "grades.change_studentscore",
+  "grades.publish_grades",
+];
+
+export const AUDIT_LOG_PERMISSIONS = [
+  "audit_logs.view_auditlog",
+];
+
+export const USER_PERMISSIONS = [
+  "accounts.view_user",
+  "accounts.add_user",
+  "accounts.change_user",
+  "accounts.set_user_active",
+  "accounts.reset_user_password",
+  "accounts.manage_user_permissions",
+];
+
+// ==========================================
+// 2. Central Permission Check Helpers
+// ==========================================
+
+export function hasPermission(permissionCode) {
+  if (!permissionCode) return false;
+  const state = useAuthStore.getState();
+  if (state.user?.is_superuser || state.requesterRole?.code === "superuser") return true;
+  return Array.isArray(state.permissions) && state.permissions.includes(permissionCode);
+}
+
+export function hasAnyPermission(permissionCodes = []) {
+  if (!Array.isArray(permissionCodes) || permissionCodes.length === 0) return false;
+  const state = useAuthStore.getState();
+  if (state.user?.is_superuser || state.requesterRole?.code === "superuser") return true;
+  return permissionCodes.some((code) => state.permissions?.includes(code));
+}
+
+export function hasAllPermissions(permissionCodes = []) {
+  if (!Array.isArray(permissionCodes) || permissionCodes.length === 0) return true;
+  const state = useAuthStore.getState();
+  if (state.user?.is_superuser || state.requesterRole?.code === "superuser") return true;
+  return permissionCodes.every((code) => state.permissions?.includes(code));
+}
+
+/**
+ * Security Rule for Permission Management:
+ * Only Superuser OR (role === 'school_admin' AND has 'accounts.manage_user_permissions')
+ */
+export function canManagePermissions(user, requesterRole, permissions) {
+  const isSuperuser = Boolean(
+    user?.is_superuser ||
+    requesterRole?.code === "superuser" ||
+    (typeof window !== "undefined" && useAuthStore.getState().requesterRole?.code === "superuser")
+  );
+  if (isSuperuser) return true;
+
+  const currentRole = (
+    user?.role ||
+    requesterRole?.code ||
+    (typeof window !== "undefined" && useAuthStore.getState().user?.role) ||
+    ""
+  ).toLowerCase();
+
+  const userPerms =
+    permissions ||
+    user?.permissions ||
+    (typeof window !== "undefined" && useAuthStore.getState().permissions) ||
+    [];
+
+  const isSchoolAdminRole = currentRole === "school_admin" || currentRole === "admin";
+  const hasManagePerm = Array.isArray(userPerms) && userPerms.includes("accounts.manage_user_permissions");
+
+  return isSchoolAdminRole && hasManagePerm;
+}
+
+/**
+ * Security Rule for Student Comprehensive Profile:
+ * Only Superuser OR (role in ['school_admin', 'secretariat', 'supervisor'] AND has 'students.view_student_profile')
+ * Forbidden for: teacher, guardian, tech_support
+ */
+export function canViewStudentProfile(user, requesterRole, permissions) {
+  const isSuperuser = Boolean(
+    user?.is_superuser ||
+    requesterRole?.code === "superuser" ||
+    (typeof window !== "undefined" && useAuthStore.getState().requesterRole?.code === "superuser")
+  );
+  if (isSuperuser) return true;
+
+  const rawRole = (
+    user?.role ||
+    user?.role_code ||
+    requesterRole?.code ||
+    (typeof window !== "undefined" && (useAuthStore.getState().user?.role || useAuthStore.getState().requesterRole?.code)) ||
+    ""
+  ).toLowerCase().replace(/[\s-]+/g, "_");
+
+  const normalizedRole =
+    rawRole === "admin" || rawRole === "school_admin" || rawRole === "schooladmin"
+      ? "school_admin"
+      : rawRole === "secretary" || rawRole === "secretariat"
+      ? "secretariat"
+      : rawRole === "educational_supervisor" || rawRole === "supervisor"
+      ? "supervisor"
+      : rawRole;
+
+  const allowedRoles = ["school_admin", "secretariat", "supervisor"];
+  if (!allowedRoles.includes(normalizedRole)) return false;
+
+  const userPerms =
+    permissions ||
+    user?.permissions ||
+    (typeof window !== "undefined" && useAuthStore.getState().permissions) ||
+    [];
+
+  return Array.isArray(userPerms) && userPerms.includes("students.view_student_profile");
+}
+
+// ==========================================
+// 3. React Hook for Reactive Permission Checking
+// ==========================================
+
+export function usePermissions() {
+  const permissions = useAuthStore((s) => s.permissions) || [];
+  const user = useAuthStore((s) => s.user);
+  const requesterRole = useAuthStore((s) => s.requesterRole);
+  const isSuperuser = Boolean(user?.is_superuser || requesterRole?.code === "superuser");
+
+  const checkHasPermission = useCallback(
+    (perm) => {
+      if (isSuperuser) return true;
+      return permissions.includes(perm);
+    },
+    [permissions, isSuperuser]
+  );
+
+  const checkHasAnyPermission = useCallback(
+    (perms = []) => {
+      if (isSuperuser) return true;
+      return perms.some((p) => permissions.includes(p));
+    },
+    [permissions, isSuperuser]
+  );
+
+  const checkHasAllPermissions = useCallback(
+    (perms = []) => {
+      if (isSuperuser) return true;
+      return perms.every((p) => permissions.includes(p));
+    },
+    [permissions, isSuperuser]
+  );
+
+  const canManageUserPerms = canManagePermissions(user, requesterRole, permissions);
+  const canViewProfile = canViewStudentProfile(user, requesterRole, permissions);
+
+  return {
+    permissions,
+    hasPermission: checkHasPermission,
+    hasAnyPermission: checkHasAnyPermission,
+    hasAllPermissions: checkHasAllPermissions,
+    canManagePermissions: canManageUserPerms,
+    canViewStudentProfile: canViewProfile,
+    isSuperuser,
+  };
+}
+
+// ==========================================
+// 4. Role Identifiers (For UI, Badges & Data Scope)
+// ==========================================
+
+export function normalizeRole(role) {
+  if (!role) return "";
+  const clean = String(role).trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (clean === "admin" || clean === "school_admin" || clean === "schooladmin") return "school_admin";
+  if (clean === "secretary" || clean === "secretariat") return "secretariat";
+  if (clean === "educational_supervisor" || clean === "supervisor") return "supervisor";
+  if (clean === "teacher") return "teacher";
+  if (clean === "guardian" || clean === "parent") return "guardian";
+  return clean;
+}
+
+export function getHomeRouteForRole(userObj) {
+  const rawRole = userObj?.role || userObj?.role_code || userObj?.role_name || "";
+  const role = normalizeRole(rawRole);
+  if (role === "school_admin") return "/admin";
+  if (role === "secretariat") return "/secretariat";
+  if (role === "supervisor") return "/supervisor";
+  if (role === "teacher") return "/teacher";
+  return "/admin";
+}
+
 export function getUserRole(user) {
   if (!user) return "";
   const role = (
@@ -15,7 +319,6 @@ export function getUserRole(user) {
   return role;
 }
 
-// 1. Role Identifiers
 export function isSchoolAdmin(user) {
   const role = getUserRole(user);
   return role === "school_admin" || role === "admin";
@@ -46,128 +349,117 @@ export function isTechSupport(user) {
   return role === "tech_support";
 }
 
-// 2. Administrative Role Check (school_admin, secretariat, supervisor)
 export function isAdministrativeRole(user) {
   return isSchoolAdmin(user) || isSecretariat(user) || isSupervisor(user);
 }
 
-// 3. Specific Capability Checks
-// Manage Academic Structure (Years, Terms, Grades, Sections, Subjects, Grade Subjects)
-export function canManageAcademics(user) {
-  return isSchoolAdmin(user) || isSecretariat(user) || isSupervisor(user);
+// ==========================================
+// 5. Backwards-Compatible Capability Checks (Upgraded to Permissions)
+// ==========================================
+
+export function canManageAcademics() {
+  return hasAnyPermission(ACADEMICS_PERMISSIONS);
 }
 
-// Manage Students, Enrollments, Transfers, Guardian Links
-export function canManageStudents(user) {
-  return isSchoolAdmin(user) || isSecretariat(user) || isSupervisor(user);
+export function canManageStudents() {
+  return hasAnyPermission(STUDENT_PERMISSIONS);
 }
 
-// Manage Teaching Assignments (Create, Edit, Delete, End, Reopen)
-export function canManageTeachingAssignments(user) {
-  return isSchoolAdmin(user) || isSupervisor(user);
+export function canManageTeachingAssignments() {
+  return hasAnyPermission(TEACHING_PERMISSIONS);
 }
 
-// Manage User Accounts & Staff
-export function canManageUsers(user) {
-  return isSchoolAdmin(user);
+export function canManageUsers() {
+  return hasAnyPermission(USER_PERMISSIONS);
 }
 
-// Manage School Requests (Complaints, Suggestions, Inquiries - View & Answer)
-export function canManageSchoolRequests(user) {
-  if (isTeacher(user) || isTechSupport(user)) return false;
-  return isAdministrativeRole(user);
+export function canManageSchoolRequests() {
+  return hasAnyPermission(REQUEST_PERMISSIONS);
 }
 
-// Manage Finance: Access Financial Module
-export function canAccessFinance(user) {
-  if (isTeacher(user) || isSupervisor(user) || isTechSupport(user)) return false;
-  return isSchoolAdmin(user) || isSecretariat(user);
+export function canAccessFinance() {
+  return hasAnyPermission(FINANCE_PERMISSIONS);
 }
 
-// Manage Finance: Manage Tuition Plans (Create, Edit Base Tuition in USD)
-export function canManageTuitionPlans(user) {
-  return isSchoolAdmin(user);
+export function canManageTuitionPlans() {
+  return hasAnyPermission([
+    "finance.add_gradetuitionplan",
+    "finance.change_gradetuitionplan",
+  ]);
 }
 
-// Manage Finance: Manage Discounts (Add, Cancel Discounts)
-export function canManageDiscounts(user) {
-  return isSchoolAdmin(user);
+export function canManageDiscounts() {
+  return hasAnyPermission([
+    "finance.add_studentdiscount",
+    "finance.cancel_discount",
+  ]);
 }
 
-// Manage Finance: Cancel Payments & Transactions
-export function canCancelFinanceTransactions(user) {
-  return isSchoolAdmin(user);
+export function canCancelFinanceTransactions() {
+  return hasAnyPermission([
+    "finance.cancel_payment",
+    "finance.cancel_discount",
+  ]);
 }
 
-// Manage Finance: Record Cash Payments
-export function canRecordPayments(user) {
-  return isSchoolAdmin(user) || isSecretariat(user);
+export function canRecordPayments() {
+  return hasPermission("finance.add_payment");
 }
 
-// Manage Finance: Preview Remaining Amount in SYP
-export function canPreviewRemainingSyp(user) {
-  return isSchoolAdmin(user) || isSecretariat(user);
+export function canPreviewRemainingSyp() {
+  return hasPermission("finance.view_studentfinancialaccount");
 }
 
-// Manage Appointments: Access Appointments Module (School Admin & Secretariat only)
-export function canAccessAppointments(user) {
-  if (isTeacher(user) || isSupervisor(user) || isTechSupport(user)) return false;
-  return isSchoolAdmin(user) || isSecretariat(user);
+export function canAccessAppointments() {
+  return hasAnyPermission(APPOINTMENT_PERMISSIONS);
 }
 
-// Manage Appointments: Approve & Reject Appointment Requests
-export function canDecideAppointments(user) {
-  if (isTeacher(user) || isSupervisor(user) || isTechSupport(user)) return false;
-  return isSchoolAdmin(user) || isSecretariat(user);
+export function canDecideAppointments() {
+  return hasPermission("appointments.decide_appointment_request");
 }
 
-// General check: can perform mutation actions (Add, Edit, Delete, Transfer, End, Reopen)
-export function canMutateData(user) {
-  if (isTeacher(user)) return false;
-  return isAdministrativeRole(user);
+export function canMutateData() {
+  return hasAnyPermission([
+    "students.add_student",
+    "students.change_student",
+    "students.delete_student",
+    "teaching.add_teacherassignment",
+    "teaching.change_teacherassignment",
+    "teaching.delete_teacherassignment",
+    ...ACADEMICS_PERMISSIONS.filter((p) => p.includes("add_") || p.includes("change_") || p.includes("delete_")),
+  ]);
 }
 
-// 4. Grades & Assessments Module Capabilities
-// Access Grades Web Module (School Admin, Supervisor, Teacher) - Secretariat, Tech Support, Guardian are blocked
-export function canAccessGrades(user) {
-  if (isSecretariat(user) || isTechSupport(user) || isGuardian(user)) return false;
-  return isSchoolAdmin(user) || isSupervisor(user) || isTeacher(user);
+export function canAccessGrades() {
+  return hasAnyPermission(GRADES_PERMISSIONS);
 }
 
-// Publish Grades (School Admin & Supervisor only)
-export function canPublishGrades(user) {
-  return isSchoolAdmin(user) || isSupervisor(user);
+export function canPublishGrades() {
+  return hasPermission("grades.publish_grades");
 }
 
-// Create Assessment for Whole Grade Level (School Admin & Supervisor only)
-export function canCreateAssessmentForGrade(user) {
-  return isSchoolAdmin(user) || isSupervisor(user);
+export function canCreateAssessmentForGrade() {
+  return hasPermission("grades.create_grade_wide_assessment");
 }
 
-// Enter & Edit Student Scores (School Admin, Supervisor, and assigned Teachers)
-export function canEnterGrades(user) {
-  return isSchoolAdmin(user) || isSupervisor(user) || isTeacher(user);
+export function canEnterGrades() {
+  return hasPermission("grades.change_studentscore");
 }
 
-// 5. General Audit Logs Capabilities
-// Access Audit Logs (School Admin & Superuser only)
-export function canAccessAuditLogs(user) {
-  if (!user) return false;
-  return isSchoolAdmin(user) || Boolean(user.is_superuser);
+export function canAccessAuditLogs() {
+  return hasPermission("audit_logs.view_auditlog");
 }
 
-// 6. Attendance & Daily Sheet Capabilities
-// Access Attendance Web Module (School Admin, Supervisor & Superuser only)
-// Teacher, Secretariat, Tech Support, Guardian are 403 Forbidden
-export function canAccessAttendance(user) {
-  if (!user) return false;
-  if (isTeacher(user) || isSecretariat(user) || isTechSupport(user) || isGuardian(user)) return false;
-  return isSchoolAdmin(user) || isSupervisor(user) || Boolean(user.is_superuser);
+export function canAccessAttendance() {
+  return hasAnyPermission(ATTENDANCE_PERMISSIONS);
 }
 
-// Full Attendance Management (Create, Edit, Bulk Update, Normal Departure)
-export function canManageAttendance(user) {
-  return canAccessAttendance(user);
+export function canManageAttendance() {
+  return hasAnyPermission([
+    "attendance.add_attendancesheet",
+    "attendance.change_attendancesheet",
+    "attendance.change_attendancerecord",
+  ]);
 }
 
 
