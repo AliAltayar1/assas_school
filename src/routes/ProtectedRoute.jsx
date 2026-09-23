@@ -14,6 +14,7 @@ export function normalizeRole(role) {
   if (clean === 'educational_supervisor' || clean === 'supervisor') return 'supervisor';
   if (clean === 'teacher') return 'teacher';
   if (clean === 'guardian' || clean === 'parent') return 'guardian';
+  if (clean === 'accountant') return 'accountant';
   return clean;
 }
 
@@ -24,6 +25,7 @@ export function getHomeRouteForRole(userObj) {
   if (role === "secretariat") return "/secretariat";
   if (role === "supervisor") return "/supervisor";
   if (role === "teacher") return "/teacher";
+  if (role === "accountant") return "/accountant/financials";
   return "/admin";
 }
 

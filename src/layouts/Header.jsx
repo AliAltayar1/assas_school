@@ -15,6 +15,7 @@ export function Header() {
     secretariat: "bg-sky-500/20 text-sky-300 border-sky-500/30",
     supervisor: "bg-purple-500/20 text-purple-300 border-purple-500/30",
     teacher: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+    accountant: "bg-amber-500/20 text-amber-300 border-amber-500/30",
   };
 
   const handleLogout = async () => {
@@ -63,7 +64,7 @@ export function Header() {
                 <span
                   className={`text-[10px] px-1.5 py-0.5 rounded border inline-block mt-0.5 ${roleBadges[user?.role] || "bg-slate-700 text-slate-300"}`}
                 >
-                  {user?.role_display || user?.role}
+                  {user?.role_display || (user?.role === "accountant" ? "المحاسب" : user?.role)}
                 </span>
               </div>
               <Settings className="w-3.5 h-3.5 text-slate-400 group-hover:text-teal-400 mr-1" />

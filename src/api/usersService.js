@@ -58,4 +58,16 @@ export const usersService = {
     });
     return res.data;
   },
+
+  // GET /api/v1/accounts/users/{id}/supervisor-scope/
+  getSupervisorScope: async (userId) => {
+    const res = await axiosInstance.get(`/accounts/users/${userId}/supervisor-scope/`);
+    return res.data;
+  },
+
+  // PUT /api/v1/accounts/users/{id}/supervisor-scope/
+  updateSupervisorScope: async (userId, scopeData) => {
+    const res = await axiosInstance.put(`/accounts/users/${userId}/supervisor-scope/`, scopeData);
+    return res.data;
+  },
 };

@@ -37,6 +37,55 @@ export function UsersTable({
     teacher: "success",
     guardian: "teal",
     tech_support: "default",
+    accountant: "warning",
+  };
+
+  const STAGE_LABELS = {
+    kindergarten: "روضة",
+    primary: "ابتدائي",
+    preparatory: "إعدادي",
+    secondary: "ثانوي",
+  };
+
+  const renderSupervisorScopeBadge = (targetUser) => {
+    if (targetUser.role !== "supervisor" && targetUser.role !== "educational_supervisor") return null;
+
+    const rawScope =
+      targetUser.supervisor_scope ||
+      targetUser.scope ||
+      targetUser.staff_profile?.supervisor_scope ||
+      (targetUser.scope_type ? { scope_type: targetUser.scope_type, stages: targetUser.stages } : null);
+
+    if (!rawScope || !rawScope.scope_type) {
+      return (
+        <span className="inline-block text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 mt-1">
+          بلا نطاق
+        </span>
+      );
+    }
+
+    if (rawScope.scope_type === "all") {
+      return (
+        <span className="inline-block text-[10px] text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 font-bold mt-1">
+          كل المدرسة
+        </span>
+      );
+    }
+
+    if (rawScope.scope_type === "selected_stages") {
+      const stagesList = Array.isArray(rawScope.stages) ? rawScope.stages : [];
+      const stageNames = stagesList.map((s) => STAGE_LABELS[s] || s).join("، ");
+      return (
+        <span
+          className="inline-block text-[10px] text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 font-bold mt-1 truncate max-w-[140px]"
+          title={stageNames || "مراحل محددة"}
+        >
+          {stageNames || "مراحل محددة"}
+        </span>
+      );
+    }
+
+    return null;
   };
 
   if (isLoading) {
@@ -137,20 +186,21 @@ export function UsersTable({
                         </div>
 
                         {/* National ID & Phone badges */}
-                        {(user.national_id || user.phone_number) && (
+                        {((user.national_id || user.national_number || user.guardian?.national_id || user.profile?.national_id || user.guardian_profile?.national_id) ||
+                          (user.phone_number || user.phone || user.primary_phone || user.guardian?.phone_number || user.profile?.phone || user.profile?.phone_number || user.guardian_profile?.phone_number || user.guardian_profile?.primary_phone || user.staff_profile?.phone || user.staff_profile?.phone_number)) && (
                           <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[10px] font-mono text-slate-600">
-                            {user.national_id && (
+                            {(user.national_id || user.national_number || user.guardian?.national_id || user.profile?.national_id || user.guardian_profile?.national_id) && (
                               <span className="inline-flex items-center gap-1 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-200 whitespace-nowrap">
                                 <CreditCard className="w-3 h-3 text-slate-400 shrink-0" />
                                 <span>هوية:</span>
-                                <span dir="ltr">{user.national_id}</span>
+                                <span dir="ltr">{user.national_id || user.national_number || user.guardian?.national_id || user.profile?.national_id || user.guardian_profile?.national_id}</span>
                               </span>
                             )}
-                            {user.phone_number && (
+                            {(user.phone_number || user.phone || user.primary_phone || user.guardian?.phone_number || user.profile?.phone || user.profile?.phone_number || user.guardian_profile?.phone_number || user.guardian_profile?.primary_phone || user.staff_profile?.phone || user.staff_profile?.phone_number) && (
                               <span className="inline-flex items-center gap-1 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-200 whitespace-nowrap">
                                 <Phone className="w-3 h-3 text-slate-400 shrink-0" />
                                 <span>هاتف:</span>
-                                <span dir="ltr">{user.phone_number}</span>
+                                <span dir="ltr">{user.phone_number || user.phone || user.primary_phone || user.guardian?.phone_number || user.profile?.phone || user.profile?.phone_number || user.guardian_profile?.phone_number || user.guardian_profile?.primary_phone || user.staff_profile?.phone || user.staff_profile?.phone_number}</span>
                               </span>
                             )}
                           </div>
@@ -177,10 +227,17 @@ export function UsersTable({
 
                   {/* 3. Role */}
                   <td className="py-3.5 px-4 whitespace-nowrap">
-                    <Badge variant={roleVariants[user.role] || "default"}>
-                      {user.role_display ||
-                        (user.role === "guardian" ? "ولي أمر" : user.role)}
-                    </Badge>
+                    <div className="flex flex-col items-start gap-0.5">
+                      <Badge variant={roleVariants[user.role] || "default"}>
+                        {user.role_display ||
+                          (user.role === "guardian"
+                            ? "ولي أمر"
+                            : user.role === "accountant"
+                              ? "المحاسب"
+                              : user.role)}
+                      </Badge>
+                      {renderSupervisorScopeBadge(user)}
+                    </div>
                   </td>
 
                   {/* 4. Active Status */}
@@ -311,11 +368,16 @@ export function UsersTable({
                   </div>
                 </div>
 
-                <div className="shrink-0">
+                <div className="shrink-0 flex flex-col items-end gap-0.5">
                   <Badge variant={roleVariants[user.role] || "default"}>
                     {user.role_display ||
-                      (user.role === "guardian" ? "ولي أمر" : user.role)}
+                      (user.role === "guardian"
+                        ? "ولي أمر"
+                        : user.role === "accountant"
+                          ? "المحاسب"
+                          : user.role)}
                   </Badge>
+                  {renderSupervisorScopeBadge(user)}
                 </div>
               </div>
 
@@ -337,20 +399,21 @@ export function UsersTable({
                 </div>
 
                 {/* National ID & Phone */}
-                {(user.national_id || user.phone_number) && (
+                {((user.national_id || user.national_number || user.guardian?.national_id || user.profile?.national_id || user.guardian_profile?.national_id) ||
+                  (user.phone_number || user.phone || user.primary_phone || user.guardian?.phone_number || user.profile?.phone || user.profile?.phone_number || user.guardian_profile?.phone_number || user.guardian_profile?.primary_phone || user.staff_profile?.phone || user.staff_profile?.phone_number)) && (
                   <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-200/50">
-                    {user.national_id && (
+                    {(user.national_id || user.national_number || user.guardian?.national_id || user.profile?.national_id || user.guardian_profile?.national_id) && (
                       <div className="flex items-center gap-1.5 bg-white px-2 py-1 rounded-lg border border-slate-200 text-slate-700 text-[11px] font-mono">
                         <CreditCard className="w-3 h-3 text-slate-400" />
                         <span>الهوية:</span>
-                        <span dir="ltr">{user.national_id}</span>
+                        <span dir="ltr">{user.national_id || user.national_number || user.guardian?.national_id || user.profile?.national_id || user.guardian_profile?.national_id}</span>
                       </div>
                     )}
-                    {user.phone_number && (
+                    {(user.phone_number || user.phone || user.primary_phone || user.guardian?.phone_number || user.profile?.phone || user.profile?.phone_number || user.guardian_profile?.phone_number || user.guardian_profile?.primary_phone || user.staff_profile?.phone || user.staff_profile?.phone_number) && (
                       <div className="flex items-center gap-1.5 bg-white px-2 py-1 rounded-lg border border-slate-200 text-slate-700 text-[11px] font-mono">
                         <Phone className="w-3 h-3 text-slate-400" />
                         <span>الهاتف:</span>
-                        <span dir="ltr">{user.phone_number}</span>
+                        <span dir="ltr">{user.phone_number || user.phone || user.primary_phone || user.guardian?.phone_number || user.profile?.phone || user.profile?.phone_number || user.guardian_profile?.phone_number || user.guardian_profile?.primary_phone || user.staff_profile?.phone || user.staff_profile?.phone_number}</span>
                       </div>
                     )}
                   </div>

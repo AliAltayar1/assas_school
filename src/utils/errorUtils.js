@@ -113,6 +113,10 @@ export const FIELD_LABELS = {
   absence_reason_source: "مصدر سبب الغياب",
   notes: "الملاحظات",
   status: "الحالة",
+  supervisor_scope: "نطاق إشراف الموجّه",
+  scope_type: "نوع نطاق الإشراف",
+  stages: "المراحل الدراسية الخاضعة للإشراف",
+  selected_stages: "المراحل الدراسية المحددة",
   non_field_errors: "خطأ عام",
 };
 
@@ -245,7 +249,22 @@ export function parseApiError(error, fallbackMessage = "") {
 
       // 1d. Server 'detail' field
       if (typeof data.detail === "string" && data.detail.trim()) {
-        return data.detail.trim();
+        const detailStr = data.detail.trim();
+        if (
+          response?.status === 404 &&
+          (detailStr.toLowerCase() === "not found." ||
+            detailStr.toLowerCase() === "not found")
+        ) {
+          return "السجل المطلوب غير موجود في النظام أو يقع خارج نطاق الصلاحيات المتاحة لك.";
+        }
+        if (
+          response?.status === 403 &&
+          (detailStr.toLowerCase().includes("permission") ||
+            detailStr.toLowerCase().includes("not have permission"))
+        ) {
+          return "عفواً، ليس لديك الصلاحية الكافية لتنفيذ هذا الإجراء.";
+        }
+        return detailStr;
       }
 
       // 1e. Server 'message' field
@@ -268,7 +287,8 @@ export function parseApiError(error, fallbackMessage = "") {
     return "انتهت صلاحية الجلسة أو لم يتم تزويد بيانات الدخول. يرجى تسجيل الدخول مجدداً.";
   if (response?.status === 403)
     return "عفواً، ليس لديك الصلاحية الكافية لتنفيذ هذا الإجراء.";
-  if (response?.status === 404) return "السجل المطلوب غير موجود في النظام.";
+  if (response?.status === 404)
+    return "السجل المطلوب غير موجود في النظام أو يقع خارج نطاق الصلاحيات المتاحة لك.";
   if (response?.status === 429)
     return "تم تجاوز الحد المسموح من الطلبات. يرجى الانتظار قليلاً ثم المحاولة.";
   if (response?.status >= 500)

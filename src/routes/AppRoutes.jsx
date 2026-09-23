@@ -196,6 +196,7 @@ export function AppRoutes() {
               <Route path="/secretariat/appointments" element={<AppointmentManagement />} />
               <Route path="/supervisor/appointments" element={<AppointmentManagement />} />
               <Route path="/teacher/appointments" element={<AppointmentManagement />} />
+              <Route path="/accountant/appointments" element={<AppointmentManagement />} />
             </Route>
 
             {/* Finance & Accounts */}
@@ -205,6 +206,8 @@ export function AppRoutes() {
               <Route path="/secretariat/financials" element={<FinanceManagement />} />
               <Route path="/supervisor/financials" element={<FinanceManagement />} />
               <Route path="/teacher/financials" element={<FinanceManagement />} />
+              <Route path="/accountant/financials" element={<FinanceManagement />} />
+              <Route path="/accountant" element={<Navigate to="/accountant/financials" replace />} />
             </Route>
 
             {/* Grades & Assessments */}
@@ -223,6 +226,7 @@ export function AppRoutes() {
               <Route path="/secretariat/audit-logs" element={<AuditLogManagement />} />
               <Route path="/supervisor/audit-logs" element={<AuditLogManagement />} />
               <Route path="/teacher/audit-logs" element={<AuditLogManagement />} />
+              <Route path="/accountant/audit-logs" element={<AuditLogManagement />} />
             </Route>
           </Route>
         </Route>

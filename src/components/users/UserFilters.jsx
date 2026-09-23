@@ -37,6 +37,7 @@ export function UserFilters({
             <option value="guardian">أولياء الأمور (guardian)</option>
             <option value="teacher">المعلمين (teacher)</option>
             <option value="supervisor">الموجهين التربويين (supervisor)</option>
+            <option value="accountant">المحاسبين (accountant)</option>
             <option value="secretariat">أمانة السر والمسجل (secretariat)</option>
             <option value="school_admin">إدارة المدرسة (school_admin)</option>
             <option value="tech_support">الدعم التقني (tech_support)</option>

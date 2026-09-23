@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/useAuthStore';
+import { getHomeRouteForRole } from '../../utils/permissionUtils';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { Alert } from '../ui/Alert';
@@ -49,14 +50,7 @@ export function ChangePasswordForm() {
       const updatedUser = await changePassword(oldPassword, newPassword, newPasswordConfirm);
 
       // Navigate to role-specific dashboard after changing password
-      const roleRoutes = {
-        school_admin: '/admin',
-        secretariat: '/secretariat',
-        supervisor: '/supervisor',
-        teacher: '/teacher',
-      };
-
-      const targetRoute = roleRoutes[updatedUser.role] || '/admin';
+      const targetRoute = getHomeRouteForRole(updatedUser);
       navigate(targetRoute, { replace: true });
     } catch (_) {
       // Handled in Zustand state

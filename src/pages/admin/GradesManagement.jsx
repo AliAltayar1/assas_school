@@ -27,11 +27,21 @@ import {
   Check,
   Clock,
   ShieldAlert,
+  ShieldCheck,
+  AlertCircle,
+  Save,
   Edit3,
 } from "lucide-react";
+import {
+  canCorrectPublishedGrades,
+  normalizeRole,
+} from "../../utils/permissionUtils";
 
 export function GradesManagement() {
-  const { user, hasPermission, hasAnyPermission, isSuperuser } = useAuthStore();
+  const { user, hasPermission, hasAnyPermission, isSuperuser, requesterRole, permissions } = useAuthStore();
+
+  const rawRole = normalizeRole(user?.role || requesterRole?.code);
+  const isTeacher = rawRole === "teacher";
 
   const canAddAssessment =
     hasPermission("grades.add_assessment") || isSuperuser;
@@ -45,6 +55,8 @@ export function GradesManagement() {
     hasPermission("grades.change_studentscore") || isSuperuser;
   const canPublish =
     hasPermission("grades.publish_grades") || isSuperuser;
+  const canCorrectPublished =
+    canCorrectPublishedGrades(user, requesterRole, permissions);
   const hasGeneralAccess =
     hasAnyPermission([
       "grades.view_assessment",
@@ -54,6 +66,7 @@ export function GradesManagement() {
       "grades.create_grade_wide_assessment",
       "grades.change_studentscore",
       "grades.publish_grades",
+      "grades.correct_published_grades",
     ]) || isSuperuser;
 
   // Academics Structure Data
@@ -104,6 +117,11 @@ export function GradesManagement() {
     id: "",
     name: "",
   });
+  const [activeScoreSectionPublished, setActiveScoreSectionPublished] =
+    useState(false);
+  const canEditCurrentScores = activeScoreSectionPublished
+    ? canCorrectPublished
+    : canChangeScore;
   const [scoreSheetAssessment, setScoreSheetAssessment] = useState(null);
   const [scoreRecords, setScoreRecords] = useState([]);
   const [isScoreSheetLoading, setIsScoreSheetLoading] = useState(false);
@@ -457,9 +475,14 @@ export function GradesManagement() {
   const handleOpenScoreSheet = async (assessment, sec) => {
     const sectionUuid = sec.section || sec.id;
     const sectionName = sec.name || "الشعبة";
+    const initialPublished =
+      sec.status === "published" ||
+      sec.is_published === true ||
+      assessment.status === "published";
 
     setScoreSheetAssessment(assessment);
     setActiveScoreSection({ id: sectionUuid, name: sectionName });
+    setActiveScoreSectionPublished(Boolean(initialPublished));
     setIsScoreSheetOpen(true);
     setIsScoreSheetLoading(true);
     setScoreSheetError(null);
@@ -468,6 +491,15 @@ export function GradesManagement() {
     try {
       // GET /grades/assessments/{ASSESSMENT_UUID}/scores/?section={SECTION_UUID}
       const res = await api.grades.getScores(assessment.id, sectionUuid);
+
+      // Check published status from backend response
+      if (
+        res?.data?.section?.status === "published" ||
+        res?.data?.status === "published" ||
+        res?.data?.is_published
+      ) {
+        setActiveScoreSectionPublished(true);
+      }
 
       // Handle raw records from response: data.records
       const rawRecords =
@@ -566,10 +598,18 @@ export function GradesManagement() {
         payloadRecords,
       );
 
-      toast.success("تم حفظ وتحديث علامات الطلاب بنجاح.");
+      if (activeScoreSectionPublished) {
+        toast.success(
+          "تم حفظ وتصحيح درجات الطلاب المنشورة بنجاح وتوثيق التعديل في سجل التدقيق.",
+        );
+      } else {
+        toast.success("تم حفظ وتحديث علامات الطلاب بنجاح.");
+      }
+
       handleOpenScoreSheet(scoreSheetAssessment, {
         section: activeScoreSection.id,
         name: activeScoreSection.name,
+        status: activeScoreSectionPublished ? "published" : "draft",
       });
       fetchAssessments();
     } catch (err) {
@@ -1219,16 +1259,55 @@ export function GradesManagement() {
                                 </div>
                               </div>
 
-                              <Button
-                                size="sm"
-                                onClick={() =>
-                                  handleOpenScoreSheet(assessment, sec)
-                                }
-                                className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-2xs"
-                              >
-                                <Edit3 className="w-3 h-3" />
-                                <span>رصد الدرجات</span>
-                              </Button>
+                              {isSecPublished ? (
+                                canCorrectPublished ? (
+                                  <Button
+                                    size="sm"
+                                    onClick={() =>
+                                      handleOpenScoreSheet(assessment, sec)
+                                    }
+                                    className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-2xs"
+                                  >
+                                    <Edit3 className="w-3 h-3" />
+                                    <span>تصحيح الدرجات</span>
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                      handleOpenScoreSheet(assessment, sec)
+                                    }
+                                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300 text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-2xs"
+                                  >
+                                    <Eye className="w-3.5 h-3.5 text-slate-600" />
+                                    <span>عرض الدرجات</span>
+                                  </Button>
+                                )
+                              ) : canChangeScore ? (
+                                <Button
+                                  size="sm"
+                                  onClick={() =>
+                                    handleOpenScoreSheet(assessment, sec)
+                                  }
+                                  className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-2xs"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                  <span>رصد الدرجات</span>
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() =>
+                                    handleOpenScoreSheet(assessment, sec)
+                                  }
+                                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300 text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-2xs"
+                                >
+                                  <Eye className="w-3.5 h-3.5 text-slate-600" />
+                                  <span>عرض الدرجات</span>
+                                </Button>
+                              )}
                             </div>
                           );
                         })}
@@ -1705,6 +1784,17 @@ export function GradesManagement() {
                 <span className="px-2.5 py-0.5 bg-teal-500/20 text-teal-200 border border-teal-400/40 rounded-lg text-xs font-black">
                   {scoreSheetAssessment?.subject_display}
                 </span>
+                {activeScoreSectionPublished ? (
+                  <span className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 rounded-lg text-xs font-black flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    منشور رسمياً
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-400/40 rounded-lg text-xs font-black flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-amber-400" />
+                    مسودة (غير منشور)
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-300 font-medium">
                 الشعبة:{" "}
@@ -1767,8 +1857,38 @@ export function GradesManagement() {
             </Alert>
           )}
 
+          {/* Permission / Status Alert Banner */}
+          {activeScoreSectionPublished ? (
+            isTeacher ? (
+              <Alert variant="danger" title="الدرجات منشورة رسمياً - التعديل مقفل للمعلم">
+                تم نشر درجات هذه الشعبة رسمياً، وتم قفل إمكانية التعديل والرصد للمعلمين. إذا كانت هناك حاجة لتصحيح درجة منشورة، يرجى مراجعة إدارة المدرسة أو الموجّه المختص.
+              </Alert>
+            ) : !canCorrectPublished ? (
+              <Alert variant="warning" title="الدرجات منشورة رسمياً - يلزم صلاحية تصحيح علامات منشورة">
+                كشف درجات هذه الشعبة منشور رسمياً. لتعديل أي علامة منشورة يلزم توفر صلاحية "تصحيح العلامات المنشورة" (grades.correct_published_grades). يمكنك فقط عرض العلامات بوضع القراءة.
+              </Alert>
+            ) : (
+              <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-900 flex items-start gap-2.5 font-medium shadow-2xs">
+                <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-black block text-amber-950 mb-0.5">
+                    وضع تصحيح العلامات المنشورة (مفعل بصلاحية خاصة)
+                  </span>
+                  <span>
+                    الدرجات منشورة رسمياً للطلاب وأولياء الأمور. يُسمح لك بالتعديل بصفتك مخوّلاً، وسيتم توثيق أي تصحيح تلقائياً في سجل التدقيق (Audit Log) متضمناً اسمك وتاريخ التعديل والقيم السابقة والجديدة.
+                  </span>
+                </div>
+              </div>
+            )
+          ) : !canChangeScore ? (
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 flex items-center gap-2 font-medium">
+              <Info className="w-4 h-4 text-slate-400 shrink-0" />
+              <span>أنت تشاهد كشف درجات الشعبة بوضع القراءة فقط (لا تملك صلاحية رصد وتعديل العلامات).</span>
+            </div>
+          ) : null}
+
           {/* Quick Actions */}
-          {canChangeScore ? (
+          {canEditCurrentScores ? (
             <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-100 rounded-xl">
               <div className="flex items-center gap-2">
                 <button
@@ -1804,12 +1924,7 @@ export function GradesManagement() {
                 فعلية.
               </span>
             </div>
-          ) : (
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 flex items-center gap-2 font-medium">
-              <Info className="w-4 h-4 text-slate-400 shrink-0" />
-              <span>أنت تشاهد كشف درجات الشعبة بوضع القراءة فقط (لا تملك صلاحية رصد وتعديل العلامات).</span>
-            </div>
-          )}
+          ) : null}
 
           {/* Student Scores Table */}
           {isScoreSheetLoading ? (
@@ -1874,7 +1989,7 @@ export function GradesManagement() {
                               max={parseFloat(maxScore) || 100}
                               placeholder="فارغ (غائب)"
                               value={rec.score_input}
-                              disabled={!canChangeScore || isSavingScores}
+                              disabled={!canEditCurrentScores || isSavingScores}
                               onChange={(e) =>
                                 handleScoreInputChange(
                                   rec.enrollment,
@@ -1887,9 +2002,9 @@ export function GradesManagement() {
                                   : hasVal
                                     ? "bg-teal-50 border-teal-400 text-teal-950"
                                     : "bg-slate-50 border-slate-300 text-slate-700"
-                              } ${!canChangeScore ? "opacity-75 cursor-not-allowed bg-slate-100" : ""}`}
+                              } ${!canEditCurrentScores ? "opacity-75 cursor-not-allowed bg-slate-100" : ""}`}
                             />
-                            {canChangeScore && (
+                            {canEditCurrentScores && (
                               <div className="flex flex-col gap-0.5 shrink-0">
                                 <button
                                   type="button"
@@ -1973,7 +2088,7 @@ export function GradesManagement() {
               >
                 إغلاق
               </Button>
-              {canChangeScore && (
+              {canEditCurrentScores && (
                 <Button
                   type="button"
                   onClick={handleSaveScores}
@@ -1982,12 +2097,20 @@ export function GradesManagement() {
                     isScoreSheetLoading ||
                     scoreRecords.length === 0
                   }
-                  className="bg-teal-700 hover:bg-teal-800 text-white font-black text-xs px-6 py-2.5 rounded-xl flex items-center gap-2 shadow-md"
+                  className={
+                    activeScoreSectionPublished
+                      ? "bg-amber-600 hover:bg-amber-700 text-white font-black text-xs px-6 py-2.5 rounded-xl flex items-center gap-2 shadow-md"
+                      : "bg-teal-700 hover:bg-teal-800 text-white font-black text-xs px-6 py-2.5 rounded-xl flex items-center gap-2 shadow-md"
+                  }
                 >
                   {isSavingScores && (
                     <RefreshCw className="w-4 h-4 animate-spin" />
                   )}
-                  <span>حفظ كشف العلامات</span>
+                  <span>
+                    {activeScoreSectionPublished
+                      ? "حفظ وتصحيح العلامات المنشورة"
+                      : "حفظ كشف العلامات"}
+                  </span>
                 </Button>
               )}
             </div>

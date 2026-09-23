@@ -193,11 +193,30 @@ export function RequestManagement() {
     Boolean(createdToFilter);
 
   // Open Details & Answer Modal
-  const handleOpenRequest = (req) => {
+  const handleOpenRequest = async (req) => {
     setSelectedRequest(req);
     setResponseText("");
     setModalError(null);
     setIsDetailsModalOpen(true);
+
+    try {
+      const freshReq = await api.requests.getById(req.id);
+      if (freshReq) {
+        const data = freshReq.data || freshReq;
+        setSelectedRequest(data);
+      }
+    } catch (err) {
+      if (err?.response?.status === 404) {
+        setIsDetailsModalOpen(false);
+        setSelectedRequest(null);
+        toast.error(
+          "هذا الطلب غير متاح أو يقع خارج نطاق الصلاحيات والمراحل المقررة لك.",
+        );
+        fetchRequests(currentPage);
+      } else {
+        console.warn("Could not fetch latest request details:", err);
+      }
+    }
   };
 
   // Submit Answer to Request Handler
@@ -251,12 +270,21 @@ export function RequestManagement() {
       // Re-fetch to guarantee synchronized state
       fetchRequests(currentPage);
     } catch (err) {
-      const parsed = parseApiError(
-        err,
-        "فشل إرسال رد المدرسة. يرجى المحاولة لاحقاً.",
-      );
-      setModalError(parsed);
-      toast.error(parsed);
+      if (err?.response?.status === 404) {
+        setIsDetailsModalOpen(false);
+        setSelectedRequest(null);
+        toast.error(
+          "هذا الطلب غير متاح أو أصبح خارج نطاق الصلاحيات والمراحل المقررة لك.",
+        );
+        fetchRequests(currentPage);
+      } else {
+        const parsed = parseApiError(
+          err,
+          "فشل إرسال رد المدرسة. يرجى المحاولة لاحقاً.",
+        );
+        setModalError(parsed);
+        toast.error(parsed);
+      }
     } finally {
       setIsSubmitting(false);
     }

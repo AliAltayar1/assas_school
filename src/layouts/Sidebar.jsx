@@ -43,7 +43,7 @@ export function Sidebar() {
   );
   const rawRole = user?.role || user?.role_code || user?.role_name || "";
   const currentRole = normalizeRole(rawRole);
-  const basePath = getHomeRouteForRole(user);
+  const basePath = currentRole === "accountant" ? "/accountant" : getHomeRouteForRole(user);
 
   // 1. Overview Item based on current role space (Dashboard Overview preserved)
   const overviewLabels = {
@@ -58,7 +58,7 @@ export function Sidebar() {
       path: basePath,
       label: overviewLabels[currentRole] || "الرئيسية والإحصائيات",
       icon: School,
-      show: true,
+      show: currentRole !== "accountant",
     },
     {
       path: `${basePath}/students`,

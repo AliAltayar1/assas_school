@@ -729,17 +729,34 @@ export function TeacherManagement() {
 
     setIsSubmitting(true);
     try {
+      const cleanEndDate =
+        editAssignmentForm.end_date && editAssignmentForm.end_date.trim()
+          ? editAssignmentForm.end_date.trim()
+          : null;
+
       const payload = {
         teacher: editAssignmentForm.teacher,
         grade_subject: editAssignmentForm.grade_subject,
         section: editAssignmentForm.section,
         start_date: editAssignmentForm.start_date,
+        end_date: cleanEndDate,
+        ends_on: cleanEndDate,
       };
-      if (editAssignmentForm.end_date) {
-        payload.end_date = editAssignmentForm.end_date;
-      }
 
       await api.teachingAssignments.patch(selectedAssignment.id, payload);
+
+      // If assignment previously had an end date and user explicitly cleared it, also call reopen if available
+      const hadEndDate = Boolean(
+        selectedAssignment.end_date || selectedAssignment.ends_on,
+      );
+      if (!cleanEndDate && hadEndDate) {
+        try {
+          await api.teachingAssignments.reopenAssignment(selectedAssignment.id);
+        } catch (_) {
+          // Reopen endpoint is optional if patch already reactivated it
+        }
+      }
+
       toast.success("تم تعديل التكليف الأكاديمي بنجاح");
       setIsEditAssignmentModalOpen(false);
       fetchAssignments(currentPage);
@@ -812,7 +829,7 @@ export function TeacherManagement() {
       grade_subject: assignment.grade_subject || "",
       section: assignment.section || "",
       start_date: assignment.start_date || "",
-      end_date: assignment.end_date || "",
+      end_date: assignment.end_date || assignment.ends_on || "",
     });
     setIsEditAssignmentModalOpen(true);
   };
@@ -2066,15 +2083,31 @@ export function TeacherManagement() {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5 whitespace-nowrap">
-                تاريخ نهاية التكليف (end_date){" "}
-                <span className="text-slate-400 font-normal text-[11px] whitespace-nowrap">
-                  (اختياري)
-                </span>
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-slate-700 whitespace-nowrap">
+                  تاريخ نهاية التكليف (end_date){" "}
+                  <span className="text-slate-400 font-normal text-[11px] whitespace-nowrap">
+                    (اختياري)
+                  </span>
+                </label>
+                {editAssignmentForm.end_date && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditAssignmentForm({
+                        ...editAssignmentForm,
+                        end_date: "",
+                      })
+                    }
+                    className="text-[10px] text-rose-600 hover:text-rose-800 font-semibold underline hover:no-underline transition-colors"
+                  >
+                    مسح التاريخ (إبقاء التكليف مستمراً)
+                  </button>
+                )}
+              </div>
               <input
                 type="date"
-                value={editAssignmentForm.end_date}
+                value={editAssignmentForm.end_date || ""}
                 onChange={(e) =>
                   setEditAssignmentForm({
                     ...editAssignmentForm,

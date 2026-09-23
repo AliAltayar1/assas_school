@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/useAuthStore';
+import { getHomeRouteForRole } from '../../utils/permissionUtils';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { Alert } from '../ui/Alert';
@@ -45,14 +46,7 @@ export function LoginForm() {
       }
 
       // Navigate based on user role from backend
-      const roleRoutes = {
-        school_admin: '/admin',
-        secretariat: '/secretariat',
-        supervisor: '/supervisor',
-        teacher: '/teacher',
-      };
-
-      const targetRoute = roleRoutes[user.role] || '/admin';
+      const targetRoute = getHomeRouteForRole(user);
       navigate(targetRoute, { replace: true });
     } catch (_) {
       // Error handled via Zustand store state

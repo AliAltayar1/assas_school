@@ -122,6 +122,7 @@ export const GRADES_PERMISSIONS = [
   "grades.view_studentscore",
   "grades.change_studentscore",
   "grades.publish_grades",
+  "grades.correct_published_grades",
 ];
 
 export const AUDIT_LOG_PERMISSIONS = [
@@ -235,6 +236,40 @@ export function canViewStudentProfile(user, requesterRole, permissions) {
   return Array.isArray(userPerms) && userPerms.includes("students.view_student_profile");
 }
 
+/**
+ * Security Rule for Correcting Published Grades:
+ * - Forbidden for teachers (even if assigned the permission directly).
+ * - Allowed for Superuser, or users (school_admin, supervisor within scope) with 'grades.correct_published_grades'.
+ */
+export function canCorrectPublishedGrades(user, requesterRole, permissions) {
+  const isSuper = Boolean(
+    user?.is_superuser ||
+    requesterRole?.code === "superuser" ||
+    (typeof window !== "undefined" && useAuthStore.getState().requesterRole?.code === "superuser")
+  );
+  if (isSuper) return true;
+
+  const rawRole = (
+    user?.role ||
+    user?.role_code ||
+    requesterRole?.code ||
+    (typeof window !== "undefined" && (useAuthStore.getState().user?.role || useAuthStore.getState().requesterRole?.code)) ||
+    ""
+  ).toLowerCase().replace(/[\s-]+/g, "_");
+
+  const normalizedRole = normalizeRole(rawRole);
+  // Teacher is strictly forbidden from correcting published grades
+  if (normalizedRole === "teacher") return false;
+
+  const userPerms =
+    permissions ||
+    user?.permissions ||
+    (typeof window !== "undefined" && useAuthStore.getState().permissions) ||
+    [];
+
+  return Array.isArray(userPerms) && userPerms.includes("grades.correct_published_grades");
+}
+
 // ==========================================
 // 3. React Hook for Reactive Permission Checking
 // ==========================================
@@ -271,6 +306,10 @@ export function usePermissions() {
 
   const canManageUserPerms = canManagePermissions(user, requesterRole, permissions);
   const canViewProfile = canViewStudentProfile(user, requesterRole, permissions);
+  const canCorrectGrades = canCorrectPublishedGrades(user, requesterRole, permissions);
+
+  const role = normalizeRole(user?.role || requesterRole?.code);
+  const isAccountantRole = role === "accountant";
 
   return {
     permissions,
@@ -279,6 +318,8 @@ export function usePermissions() {
     hasAllPermissions: checkHasAllPermissions,
     canManagePermissions: canManageUserPerms,
     canViewStudentProfile: canViewProfile,
+    canCorrectPublishedGrades: canCorrectGrades,
+    isAccountant: isAccountantRole,
     isSuperuser,
   };
 }
@@ -295,6 +336,7 @@ export function normalizeRole(role) {
   if (clean === "educational_supervisor" || clean === "supervisor") return "supervisor";
   if (clean === "teacher") return "teacher";
   if (clean === "guardian" || clean === "parent") return "guardian";
+  if (clean === "accountant") return "accountant";
   return clean;
 }
 
@@ -305,6 +347,7 @@ export function getHomeRouteForRole(userObj) {
   if (role === "secretariat") return "/secretariat";
   if (role === "supervisor") return "/supervisor";
   if (role === "teacher") return "/teacher";
+  if (role === "accountant") return "/accountant/financials";
   return "/admin";
 }
 
@@ -347,6 +390,11 @@ export function isGuardian(user) {
 export function isTechSupport(user) {
   const role = getUserRole(user);
   return role === "tech_support";
+}
+
+export function isAccountant(user) {
+  const role = getUserRole(user);
+  return role === "accountant";
 }
 
 export function isAdministrativeRole(user) {

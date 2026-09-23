@@ -85,7 +85,9 @@ export function UserStaffManagement() {
       setHasNext(Boolean(next));
       setHasPrevious(Boolean(previous));
     } catch (err) {
-      setError(parseApiError(err, "حدث خطأ أثناء تحميل حسابات المستخدمين من السيرفر."));
+      setError(
+        parseApiError(err, "حدث خطأ أثناء تحميل حسابات المستخدمين من السيرفر."),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -123,24 +125,44 @@ export function UserStaffManagement() {
   };
 
   // Open modal for user edit
-  const handleOpenEditModal = (user) => {
+  const handleOpenEditModal = async (user) => {
     setEditingUser(user);
     setIsFormModalOpen(true);
+    if (user?.id) {
+      try {
+        const fullRes = await api.users.getUserById(user.id);
+        const detail = fullRes?.data || fullRes;
+        if (detail && (detail.id === user.id || detail.username === user.username)) {
+          setEditingUser((prev) => (prev && prev.id === user.id ? { ...prev, ...detail } : prev));
+        }
+      } catch (_) {
+        // Fallback silently to table user object
+      }
+    }
   };
 
   // Create or Update User Submit Handler
   const handleFormSubmit = async (formData) => {
     if (editingUser) {
       const res = await api.users.updateUser(editingUser.id, formData);
-      toast.success(getApiSuccessMessage(res, "تم تحديث بيانات المستخدم بنجاح."));
+      toast.success(
+        getApiSuccessMessage(res, "تم تحديث بيانات المستخدم بنجاح."),
+      );
       fetchUsers();
+      // If current session user was updated, refresh session immediately
+      const currentLoggedInUser = useAuthStore.getState().user;
+      if (currentLoggedInUser && (currentLoggedInUser.id === editingUser.id || currentLoggedInUser.username === editingUser.username)) {
+        useAuthStore.getState().refreshCurrentUser();
+      }
     } else {
       const newUser = await api.users.createUser(formData);
       toast.success(getApiSuccessMessage(newUser, "تم إنشاء الحساب بنجاح."));
       fetchUsers();
 
       if (newUser.temporary_password || newUser.data?.temporary_password) {
-        setTempPassword(newUser.temporary_password || newUser.data?.temporary_password);
+        setTempPassword(
+          newUser.temporary_password || newUser.data?.temporary_password,
+        );
         setTempPasswordUsername(newUser.username || newUser.data?.username);
         setIsTempModalOpen(true);
       }
@@ -163,8 +185,14 @@ export function UserStaffManagement() {
         setConfirmConfig((prev) => ({ ...prev, isLoading: true }));
         try {
           const res = await api.users.setActiveStatus(user.id, !user.is_active);
-          toast.success(getApiSuccessMessage(res, `تم ${actionText} الحساب بنجاح.`));
-          setConfirmConfig((prev) => ({ ...prev, isOpen: false, isLoading: false }));
+          toast.success(
+            getApiSuccessMessage(res, `تم ${actionText} الحساب بنجاح.`),
+          );
+          setConfirmConfig((prev) => ({
+            ...prev,
+            isOpen: false,
+            isLoading: false,
+          }));
           fetchUsers();
         } catch (err) {
           setConfirmConfig((prev) => ({ ...prev, isLoading: false }));
@@ -187,10 +215,17 @@ export function UserStaffManagement() {
         setConfirmConfig((prev) => ({ ...prev, isLoading: true }));
         try {
           const res = await api.users.resetPassword(user.id);
-          toast.success(getApiSuccessMessage(res, "تمت إعادة تعيين كلمة المرور بنجاح."));
-          setConfirmConfig((prev) => ({ ...prev, isOpen: false, isLoading: false }));
+          toast.success(
+            getApiSuccessMessage(res, "تمت إعادة تعيين كلمة المرور بنجاح."),
+          );
+          setConfirmConfig((prev) => ({
+            ...prev,
+            isOpen: false,
+            isLoading: false,
+          }));
 
-          const tempPass = res.temporary_password || res.data?.temporary_password;
+          const tempPass =
+            res.temporary_password || res.data?.temporary_password;
           if (tempPass) {
             setTempPassword(tempPass);
             setTempPasswordUsername(user.username);
@@ -214,7 +249,8 @@ export function UserStaffManagement() {
             <span>إدارة حسابات المستخدمين والموظفين</span>
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            إضافة وتعديل وتفعيل حسابات الكادر التعليمي والإداري، وتحديد الصلاحيات الأكاديمية.
+            إضافة وتعديل وتفعيل حسابات الكادر التعليمي والإداري، وتحديد
+            الصلاحيات الأكاديمية.
           </p>
         </div>
 
@@ -226,7 +262,9 @@ export function UserStaffManagement() {
             disabled={isLoading}
             title="تحديث القائمة"
           >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`}
+            />
           </Button>
 
           {canAddUser && (
@@ -287,7 +325,13 @@ export function UserStaffManagement() {
           setPermissionsUser(null);
         }}
         user={permissionsUser}
-        onPermissionsUpdated={() => fetchUsers()}
+        onPermissionsUpdated={() => {
+          fetchUsers();
+          const currentLoggedInUser = useAuthStore.getState().user;
+          if (currentLoggedInUser && permissionsUser && (currentLoggedInUser.id === permissionsUser.id || currentLoggedInUser.username === permissionsUser.username)) {
+            useAuthStore.getState().refreshCurrentUser();
+          }
+        }}
       />
 
       {/* Modal for Guardian / User Details and Linked Students */}

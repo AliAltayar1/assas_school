@@ -81,7 +81,7 @@ export function GuardianDetailsModal({ isOpen, onClose, user }) {
 
             <div className="flex items-center gap-2">
               <Badge variant={isGuardian ? "teal" : "default"}>
-                {user.role_display || (isGuardian ? "ولي أمر" : user.role)}
+                {user.role_display || (isGuardian ? "ولي أمر" : user.role === "accountant" ? "المحاسب" : user.role)}
               </Badge>
               <Badge variant={user.is_active ? "success" : "danger"}>
                 {user.is_active ? "نشط" : "معطل"}
@@ -97,7 +97,7 @@ export function GuardianDetailsModal({ isOpen, onClose, user }) {
               <div>
                 <span className="text-slate-400 block text-[10px]">الرقم الوطني / الهوية:</span>
                 <span className="font-mono font-bold text-slate-800">
-                  {user.national_id || "غير مسجل"}
+                  {user.national_id || user.national_number || user.guardian?.national_id || user.profile?.national_id || user.guardian_profile?.national_id || "غير مسجل"}
                 </span>
               </div>
             </div>
@@ -108,7 +108,7 @@ export function GuardianDetailsModal({ isOpen, onClose, user }) {
               <div>
                 <span className="text-slate-400 block text-[10px]">رقم الهاتف:</span>
                 <span className="font-mono font-bold text-slate-800">
-                  {user.phone_number || user.phone || "غير مسجل"}
+                  {user.phone_number || user.phone || user.primary_phone || user.guardian?.phone_number || user.profile?.phone || user.profile?.phone_number || user.guardian_profile?.phone_number || user.guardian_profile?.primary_phone || user.staff_profile?.phone || user.staff_profile?.phone_number || "غير مسجل"}
                 </span>
               </div>
             </div>
@@ -135,6 +135,32 @@ export function GuardianDetailsModal({ isOpen, onClose, user }) {
               </div>
             </div>
           </div>
+
+          {/* Supervisor Scope Details (Only for Supervisors) */}
+          {(user.role === "supervisor" || user.role === "educational_supervisor") && (
+            <div className="bg-purple-50/70 border border-purple-200 rounded-xl p-3 text-xs space-y-1">
+              <span className="text-purple-900 font-bold block text-xs">نطاق إشراف الموجّه (Supervisor Scope):</span>
+              <p className="text-purple-800 text-xs">
+                {(() => {
+                  const rawScope =
+                    user.supervisor_scope ||
+                    user.scope ||
+                    user.staff_profile?.supervisor_scope ||
+                    (user.scope_type ? { scope_type: user.scope_type, stages: user.stages } : null);
+                  if (!rawScope || !rawScope.scope_type) return "لم يتم تحديد نطاق إشراف لهذا الموجّه بعد (خارج نطاق الوحدات المقيّدة).";
+                  if (rawScope.scope_type === "all") return "المدرسة كاملة (جميع المراحل التعليمية).";
+                  const stageMap = {
+                    kindergarten: "مرحلة الروضة",
+                    primary: "المرحلة الابتدائية",
+                    preparatory: "المرحلة الإعدادية",
+                    secondary: "المرحلة الثانوية",
+                  };
+                  const stages = (Array.isArray(rawScope.stages) ? rawScope.stages : []).map(s => stageMap[s] || s);
+                  return `مراحل محددة: ${stages.length > 0 ? stages.join("، ") : "لم تحدد مراحل"}`;
+                })()}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Linked Students Section (Only for Guardians) */}
