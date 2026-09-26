@@ -76,6 +76,17 @@ export const BEHAVIOR_PERMISSIONS = [
   "behavior.add_behaviornote",
   "behavior.change_behaviornote",
   "behavior.delete_behaviornote",
+  "behavior.view_studentpointentry",
+  "behavior.add_studentpointentry",
+  "behavior.change_studentpointentry",
+  "behavior.delete_studentpointentry",
+];
+
+export const STUDENT_POINTS_PERMISSIONS = [
+  "behavior.view_studentpointentry",
+  "behavior.add_studentpointentry",
+  "behavior.change_studentpointentry",
+  "behavior.delete_studentpointentry",
 ];
 
 export const HOMEWORK_PERMISSIONS = [
@@ -234,6 +245,37 @@ export function canViewStudentProfile(user, requesterRole, permissions) {
     [];
 
   return Array.isArray(userPerms) && userPerms.includes("students.view_student_profile");
+}
+
+/**
+ * Security Rule for Student Excel Import:
+ * Allowed for Superuser, School Admin, and Secretariat.
+ * Forbidden for: Teacher, Educational Supervisor, Guardian, Accountant, etc.
+ */
+export function canAccessStudentImport(user, requesterRole) {
+  const isSuperuser = Boolean(
+    user?.is_superuser ||
+    requesterRole?.code === "superuser" ||
+    (typeof window !== "undefined" && useAuthStore.getState().requesterRole?.code === "superuser")
+  );
+  if (isSuperuser) return true;
+
+  const rawRole = (
+    user?.role ||
+    user?.role_code ||
+    requesterRole?.code ||
+    (typeof window !== "undefined" && (useAuthStore.getState().user?.role || useAuthStore.getState().requesterRole?.code)) ||
+    ""
+  ).toLowerCase().replace(/[\s-]+/g, "_");
+
+  const normalizedRole =
+    rawRole === "admin" || rawRole === "school_admin" || rawRole === "schooladmin"
+      ? "school_admin"
+      : rawRole === "secretary" || rawRole === "secretariat"
+      ? "secretariat"
+      : rawRole;
+
+  return ["school_admin", "secretariat"].includes(normalizedRole);
 }
 
 /**

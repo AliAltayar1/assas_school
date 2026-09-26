@@ -10,9 +10,9 @@ export const attendanceService = {
    * Read-only, does not create sheets or audit records.
    * @param {string} sectionId - UUID of the section
    */
-  getRoster: async (sectionId) => {
+  getRoster: async (sectionId, params = {}) => {
     const res = await axiosInstance.get('/attendance/sheets/roster/', {
-      params: { section: sectionId },
+      params: { section: sectionId, ...params },
     });
     return res.data;
   },

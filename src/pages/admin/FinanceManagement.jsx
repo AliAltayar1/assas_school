@@ -7,6 +7,7 @@ import { Alert } from "../../components/ui/Alert";
 import { Pagination } from "../../components/ui/Pagination";
 import { toast } from "sonner";
 import { parseApiError, extractPaginatedList } from "../../utils/errorUtils";
+import { FinancePrintPreviewModal } from "../../components/finance/FinancePrintPreviewModal";
 import {
   DollarSign,
   Search,
@@ -36,6 +37,8 @@ import {
   ShieldAlert,
   Info,
   Check,
+  Printer,
+  FileText,
 } from "lucide-react";
 
 export function FinanceManagement() {
@@ -62,6 +65,18 @@ export function FinanceManagement() {
     hasPermission("finance.cancel_discount") || isSuperuser;
   const canPreviewSyp =
     hasPermission("finance.view_studentfinancialaccount") || isSuperuser;
+  const canViewDiscounts =
+    hasAnyPermission([
+      "finance.view_studentdiscount",
+      "finance.add_studentdiscount",
+      "finance.cancel_discount",
+    ]) || isSuperuser;
+  const canViewPayments =
+    hasAnyPermission([
+      "finance.view_payment",
+      "finance.add_payment",
+      "finance.cancel_payment",
+    ]) || isSuperuser;
 
   // Permission Aliases for Modal Guards
   const allowTuitionPlans = canViewTuitionPlans;
@@ -162,6 +177,15 @@ export function FinanceManagement() {
   });
   const [isPlanSubmitting, setIsPlanSubmitting] = useState(false);
   const [planModalError, setPlanModalError] = useState(null);
+
+  // F. Financial Print Modal State
+  const [printModalConfig, setPrintModalConfig] = useState({
+    isOpen: false,
+    type: "student_invoice", // "student_invoice" | "payment_receipt" | "financial_summary"
+    data: null,
+  });
+  const [isPrintingSummary, setIsPrintingSummary] = useState(false);
+  const [isPreparingInvoice, setIsPreparingInvoice] = useState(false);
 
   // ============================================================
   // 5. EFFECTS & DATA FETCHING
@@ -265,6 +289,12 @@ export function FinanceManagement() {
       // Backend returns either { success: true, data: { ... } } or direct object
       const details = data?.data || data;
       setAccountDetails(details);
+      // Automatically switch to available tab if default tab is omitted due to field-level permissions
+      if (details?.payments === undefined && details?.discounts !== undefined) {
+        setDetailsActiveTab("discounts");
+      } else if (details?.discounts === undefined && details?.payments !== undefined) {
+        setDetailsActiveTab("payments");
+      }
     } catch (err) {
       setAccountDetailsError(
         parseApiError(err, "حدث خطأ أثناء تحميل تفاصيل الحساب المالي."),
@@ -279,7 +309,11 @@ export function FinanceManagement() {
     setSelectedAccountId(account.id);
     setAccountDetails(null);
     setIsDetailsModalOpen(true);
-    setDetailsActiveTab("payments");
+    if (!canViewPayments && canViewDiscounts) {
+      setDetailsActiveTab("discounts");
+    } else {
+      setDetailsActiveTab("payments");
+    }
     fetchAccountDetails(account.id);
   };
 
@@ -709,6 +743,144 @@ export function FinanceManagement() {
   // Active totals for selected account
   const activeTotals = accountDetails?.totals || {};
 
+  // ============================================================
+  // 6. PRINT ACTION HANDLERS
+  // ============================================================
+
+  // Print Student Invoice / Statement
+  const handlePrintStudentInvoice = async (accountItem) => {
+    if (!accountItem?.id) return;
+
+    // If accountItem already has details loaded
+    const hasPayments = accountItem.payments !== undefined;
+    const hasDiscounts = accountItem.discounts !== undefined;
+
+    if (hasPayments || hasDiscounts) {
+      setPrintModalConfig({
+        isOpen: true,
+        type: "student_invoice",
+        data: {
+          ...accountItem,
+          payments: Array.isArray(accountItem.payments) ? accountItem.payments : [],
+          discounts: Array.isArray(accountItem.discounts) ? accountItem.discounts : [],
+          totals: accountItem.totals || {},
+        },
+      });
+      return;
+    }
+
+    // Otherwise, fetch full account details from server
+    try {
+      setIsPreparingInvoice(true);
+      const res = await api.finance.getAccountById(accountItem.id);
+      const details = res?.data || res;
+      // Merge with accountItem to preserve display attributes like student_display
+      const mergedData = {
+        ...accountItem,
+        ...details,
+        payments: Array.isArray(details.payments)
+          ? details.payments
+          : Array.isArray(accountItem.payments)
+            ? accountItem.payments
+            : [],
+        discounts: Array.isArray(details.discounts)
+          ? details.discounts
+          : Array.isArray(accountItem.discounts)
+            ? accountItem.discounts
+            : [],
+        totals: details.totals || accountItem.totals || {},
+      };
+      setPrintModalConfig({
+        isOpen: true,
+        type: "student_invoice",
+        data: mergedData,
+      });
+    } catch (err) {
+      toast.error(
+        parseApiError(
+          err,
+          "تعذر تحميل التفاصيل الكاملة لحساب الطالب للطباعة.",
+        ),
+      );
+    } finally {
+      setIsPreparingInvoice(false);
+    }
+  };
+
+  // Print Single Payment Receipt Voucher
+  const handlePrintSingleReceipt = (paymentItem) => {
+    if (!accountDetails || !paymentItem) return;
+    setPrintModalConfig({
+      isOpen: true,
+      type: "payment_receipt",
+      data: {
+        account: accountDetails,
+        payment: paymentItem,
+      },
+    });
+  };
+
+  // Print School-wide Financial Summary Report
+  const handlePrintFinancialSummary = async () => {
+    try {
+      setIsPrintingSummary(true);
+      let reportAccounts = accounts;
+
+      // If there are more accounts than currently displayed on this page, fetch up to 1500 accounts
+      if (accountsCount > accounts.length || accountsPage > 1) {
+        const params = {
+          page_size: 1500,
+        };
+        if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
+        if (yearFilter) params.academic_year = yearFilter;
+        if (gradeFilter) params.grade_level = gradeFilter;
+        if (statusFilter) params.payment_status = statusFilter;
+
+        const res = await api.finance.getAccounts(params);
+        const { results } = extractPaginatedList(res);
+        if (results && results.length > 0) {
+          reportAccounts = results;
+        }
+      }
+
+      const selectedYear = academicYears.find(
+        (y) => String(y.id) === String(yearFilter),
+      );
+      const selectedGrade = gradeLevels.find(
+        (g) => String(g.id) === String(gradeFilter),
+      );
+
+      const filtersMeta = {
+        yearName: selectedYear ? selectedYear.name || selectedYear.year : "",
+        gradeName: selectedGrade ? selectedGrade.name : "",
+        statusName:
+          statusFilter === "paid"
+            ? "المسددة فقط"
+            : statusFilter === "partial"
+            ? "المدفوعة جزئياً فقط"
+            : statusFilter === "unpaid"
+            ? "غير المدفوعة فقط"
+            : "",
+      };
+
+      setPrintModalConfig({
+        isOpen: true,
+        type: "financial_summary",
+        data: {
+          accounts: reportAccounts,
+          stats: stats,
+          filters: filtersMeta,
+        },
+      });
+    } catch (err) {
+      toast.error(
+        parseApiError(err, "تعذر استخراج بيانات الملخص المالي للطباعة."),
+      );
+    } finally {
+      setIsPrintingSummary(false);
+    }
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6 text-right dir-rtl" dir="rtl">
       {/* 1. Header Card */}
@@ -956,6 +1128,25 @@ export function FinanceManagement() {
                     <span>إعادة ضبط</span>
                   </Button>
                 )}
+
+                {/* Print Financial Summary */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePrintFinancialSummary}
+                  disabled={isPrintingSummary || isAccountsLoading || accounts.length === 0}
+                  className="h-9 px-3 gap-1.5 text-xs font-bold text-slate-700 hover:text-teal-700 hover:bg-teal-50/50 hover:border-teal-200 shrink-0 shadow-xs"
+                  title="طباعة التقرير والملخص المالي العام للمدرسة"
+                >
+                  <Printer
+                    className={`w-3.5 h-3.5 ${
+                      isPrintingSummary ? "animate-spin" : "text-teal-600"
+                    }`}
+                  />
+                  <span>
+                    {isPrintingSummary ? "جاري التجهيز..." : "طباعة الملخص المالي"}
+                  </span>
+                </Button>
               </div>
             </div>
           </div>
@@ -1101,15 +1292,28 @@ export function FinanceManagement() {
 
                             {/* Action */}
                             <td className="py-3.5 px-4 whitespace-nowrap text-center">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleOpenAccountDetails(item)}
-                                className="h-8 px-3 text-xs gap-1.5 font-bold text-teal-700 hover:text-teal-800 hover:bg-teal-50 hover:border-teal-300"
-                              >
-                                <Receipt className="w-3.5 h-3.5" />
-                                <span>تفاصيل الحساب</span>
-                              </Button>
+                              <div className="flex items-center justify-center gap-1.5">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handlePrintStudentInvoice(item)}
+                                  disabled={isPreparingInvoice}
+                                  className="h-8 px-2.5 text-xs gap-1 font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 hover:border-slate-300"
+                                  title="طباعة فاتورة / كشف حساب مالي للطالب"
+                                >
+                                  <Printer className="w-3.5 h-3.5 text-slate-600" />
+                                  <span>فاتورة</span>
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleOpenAccountDetails(item)}
+                                  className="h-8 px-3 text-xs gap-1.5 font-bold text-teal-700 hover:text-teal-800 hover:bg-teal-50 hover:border-teal-300"
+                                >
+                                  <Receipt className="w-3.5 h-3.5" />
+                                  <span>تفاصيل الحساب</span>
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -1180,16 +1384,27 @@ export function FinanceManagement() {
                           </div>
                         </div>
 
-                        {/* Mobile Action Button */}
-                        <div>
+                        {/* Mobile Action Buttons */}
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handlePrintStudentInvoice(item)}
+                            disabled={isPreparingInvoice}
+                            className="h-8.5 px-3 text-xs gap-1.5 font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 shrink-0"
+                            title="طباعة فاتورة الطالب"
+                          >
+                            <Printer className="w-3.5 h-3.5 text-slate-600" />
+                            <span>فاتورة</span>
+                          </Button>
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => handleOpenAccountDetails(item)}
-                            className="w-full h-8.5 text-xs gap-1.5 font-bold text-teal-700 hover:text-teal-800 hover:bg-teal-50 hover:border-teal-300"
+                            className="flex-1 h-8.5 text-xs gap-1.5 font-bold text-teal-700 hover:text-teal-800 hover:bg-teal-50 hover:border-teal-300"
                           >
                             <Receipt className="w-3.5 h-3.5" />
-                            <span>عرض تفاصيل الحساب والدفعات</span>
+                            <span>عرض التفاصيل</span>
                           </Button>
                         </div>
                       </div>
@@ -1438,47 +1653,70 @@ export function FinanceManagement() {
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-b border-slate-100 pb-3">
               {/* Tab Switcher: Payments / Discounts */}
               <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 border border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setDetailsActiveTab("payments")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                    detailsActiveTab === "payments"
-                      ? "bg-white text-teal-800 shadow-sm"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Receipt className="w-3.5 h-3.5" />
-                  <span>
-                    الدفعات (
-                    {Array.isArray(accountDetails.payments)
-                      ? accountDetails.payments.length
-                      : 0}
-                    )
-                  </span>
-                </button>
+                {(canViewPayments && accountDetails.payments !== undefined) && (
+                  <button
+                    type="button"
+                    onClick={() => setDetailsActiveTab("payments")}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                      detailsActiveTab === "payments"
+                        ? "bg-white text-teal-800 shadow-sm"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <Receipt className="w-3.5 h-3.5" />
+                    <span>
+                      الدفعات (
+                      {Array.isArray(accountDetails.payments)
+                        ? accountDetails.payments.length
+                        : 0}
+                      )
+                    </span>
+                  </button>
+                )}
 
-                <button
-                  type="button"
-                  onClick={() => setDetailsActiveTab("discounts")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                    detailsActiveTab === "discounts"
-                      ? "bg-white text-teal-800 shadow-sm"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Percent className="w-3.5 h-3.5" />
-                  <span>
-                    الخصومات (
-                    {Array.isArray(accountDetails.discounts)
-                      ? accountDetails.discounts.length
-                      : 0}
-                    )
+                {(canViewDiscounts && accountDetails.discounts !== undefined) && (
+                  <button
+                    type="button"
+                    onClick={() => setDetailsActiveTab("discounts")}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                      detailsActiveTab === "discounts"
+                        ? "bg-white text-teal-800 shadow-sm"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <Percent className="w-3.5 h-3.5" />
+                    <span>
+                      الخصومات (
+                      {Array.isArray(accountDetails.discounts)
+                        ? accountDetails.discounts.length
+                        : 0}
+                      )
+                    </span>
+                  </button>
+                )}
+
+                {(!canViewPayments || accountDetails.payments === undefined) &&
+                 (!canViewDiscounts || accountDetails.discounts === undefined) && (
+                  <span className="text-[11px] text-slate-500 px-3 py-1 font-medium">
+                    سجلات العمليات مقيدة بالصلاحيات
                   </span>
-                </button>
+                )}
               </div>
 
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePrintStudentInvoice(accountDetails)}
+                  className="h-8.5 px-3 text-xs gap-1.5 font-bold text-slate-700 hover:text-teal-800 hover:bg-teal-50/50 border-slate-300 shadow-xs"
+                  title="طباعة فاتورة وكشف حساب مالي رسمي للطالب"
+                >
+                  <Printer className="w-3.5 h-3.5 text-teal-600" />
+                  <span>طباعة الفاتورة / كشف الحساب</span>
+                </Button>
+
                 {canPreviewSyp && (
                   <Button
                     type="button"
@@ -1533,7 +1771,17 @@ export function FinanceManagement() {
                   </h4>
                 </div>
 
-                {!accountDetails.payments ||
+                {!canViewPayments || accountDetails.payments === undefined ? (
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-8 text-center space-y-1 text-slate-500 text-xs">
+                    <ShieldAlert className="w-6 h-6 mx-auto text-amber-500 mb-1" />
+                    <p className="font-bold text-slate-700">
+                      سجل الدفعات غير متاح
+                    </p>
+                    <p className="text-[11px]">
+                      تفاصيل الدفعات المالية مقيدة بالصلاحيات ولا تتوفر لحسابك الحالي.
+                    </p>
+                  </div>
+                ) : !Array.isArray(accountDetails.payments) ||
                 accountDetails.payments.length === 0 ? (
                   <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-8 text-center space-y-1 text-slate-500 text-xs">
                     <Receipt className="w-6 h-6 mx-auto text-slate-400 mb-1" />
@@ -1558,9 +1806,7 @@ export function FinanceManagement() {
                           <th className="py-2.5 px-3">الملاحظة</th>
                           <th className="py-2.5 px-3">المستلم</th>
                           <th className="py-2.5 px-3">الحالة</th>
-                          {canCancelPayment && (
-                            <th className="py-2.5 px-3 text-center">إجراء</th>
-                          )}
+                          <th className="py-2.5 px-3 text-center">الإجراءات</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -1664,9 +1910,17 @@ export function FinanceManagement() {
                                 )}
                               </td>
 
-                              {canCancelPayment && (
-                                <td className="py-2.5 px-3 whitespace-nowrap text-center">
-                                  {!isCancelled ? (
+                              <td className="py-2.5 px-3 whitespace-nowrap text-center">
+                                <div className="flex items-center justify-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handlePrintSingleReceipt(p)}
+                                    className="p-1 rounded-md text-slate-500 hover:text-teal-700 hover:bg-slate-100 transition-colors"
+                                    title="طباعة سند قبض لهذه الدفعة"
+                                  >
+                                    <Printer className="w-3.5 h-3.5" />
+                                  </button>
+                                  {canCancelPayment && !isCancelled && (
                                     <button
                                       type="button"
                                       onClick={() =>
@@ -1682,15 +1936,11 @@ export function FinanceManagement() {
                                       }
                                       className="text-xs text-rose-600 hover:text-rose-800 hover:underline font-bold"
                                     >
-                                      إلغاء الدفعة
+                                      إلغاء
                                     </button>
-                                  ) : (
-                                    <span className="text-slate-300 text-[11px]">
-                                      -
-                                    </span>
                                   )}
-                                </td>
-                              )}
+                                </div>
+                              </td>
                             </tr>
                           );
                         })}
@@ -1711,7 +1961,17 @@ export function FinanceManagement() {
                   </h4>
                 </div>
 
-                {!accountDetails.discounts ||
+                {!canViewDiscounts || accountDetails.discounts === undefined ? (
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-8 text-center space-y-1 text-slate-500 text-xs">
+                    <ShieldAlert className="w-6 h-6 mx-auto text-amber-500 mb-1" />
+                    <p className="font-bold text-slate-700">
+                      سجل الخصومات غير متاح
+                    </p>
+                    <p className="text-[11px]">
+                      تفاصيل الخصومات الممنوحة مقيدة بالصلاحيات ولا تتوفر لحسابك الحالي.
+                    </p>
+                  </div>
+                ) : !Array.isArray(accountDetails.discounts) ||
                 accountDetails.discounts.length === 0 ? (
                   <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-8 text-center space-y-1 text-slate-500 text-xs">
                     <Percent className="w-6 h-6 mx-auto text-slate-400 mb-1" />
@@ -2577,6 +2837,19 @@ export function FinanceManagement() {
           </form>
         </Modal>
       )}
+
+      {/* ============================================================ */}
+      {/* 8. FINANCIAL PRINT PREVIEW MODAL                             */}
+      {/* ============================================================ */}
+      <FinancePrintPreviewModal
+        isOpen={printModalConfig.isOpen}
+        onClose={() =>
+          setPrintModalConfig((prev) => ({ ...prev, isOpen: false }))
+        }
+        type={printModalConfig.type}
+        data={printModalConfig.data}
+        requesterUser={user}
+      />
     </div>
   );
 }

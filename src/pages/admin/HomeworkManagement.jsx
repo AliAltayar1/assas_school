@@ -129,7 +129,25 @@ export function HomeworkManagement() {
   // Fetch Metadata for dropdowns (Assignments, Sections, GradeSubjects, Teachers)
   const fetchMetadata = useCallback(async () => {
     try {
-      const [assignData, secData, gsData, usersData] = await Promise.all([
+      const fetchAllTeachers = async () => {
+        if (isTeacher || !api.users?.getUsers) return [];
+        let all = [];
+        let page = 1;
+        let hasNext = true;
+        while (hasNext && page <= 20) {
+          const res = await api.users.getUsers({ role: "teacher", page, page_size: 100 });
+          const { results, next } = extractPaginatedList(res);
+          all = all.concat(results);
+          if (next && results.length > 0) {
+            page += 1;
+          } else {
+            hasNext = false;
+          }
+        }
+        return all;
+      };
+
+      const [assignData, secData, gsData, teachersList] = await Promise.all([
         api.teachingAssignments?.getAll
           ? api.teachingAssignments.getAll().catch(() => null)
           : null,
@@ -139,9 +157,7 @@ export function HomeworkManagement() {
         api.academics?.getGradeSubjects
           ? api.academics.getGradeSubjects().catch(() => null)
           : null,
-        !isTeacher && api.users?.getUsers
-          ? api.users.getUsers({ role: "teacher" }).catch(() => null)
-          : null,
+        fetchAllTeachers().catch(() => []),
       ]);
 
       if (assignData) {
@@ -153,8 +169,8 @@ export function HomeworkManagement() {
       if (gsData) {
         setGradeSubjects(extractPaginatedList(gsData).results || []);
       }
-      if (usersData) {
-        setTeachers(extractPaginatedList(usersData).results || []);
+      if (teachersList) {
+        setTeachers(teachersList || []);
       }
     } catch (_) {}
   }, [isTeacher]);

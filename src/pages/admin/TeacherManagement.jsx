@@ -187,34 +187,75 @@ export function TeacherManagement() {
   // Fetch Metadata for Select Dropdowns
   const fetchMetadata = useCallback(async () => {
     try {
-      const [usersData, gsData, secData, glData] = await Promise.all([
-        api.users.getUsers({ role: "teacher" }).catch(() => null),
-        api.academics?.getGradeSubjects
-          ? api.academics.getGradeSubjects().catch(() => null)
-          : null,
-        api.academics?.getSections
-          ? api.academics.getSections().catch(() => null)
-          : null,
+      // 1. Fetch Teachers using GET /api/v1/accounts/users/?role=teacher with proper pagination
+      // Relies strictly on backend Academic Scope and does not fall back to all users or hardcoded role filters
+      const fetchAllTeachers = async () => {
+        let all = [];
+        let page = 1;
+        let hasNext = true;
+        while (hasNext && page <= 20) {
+          const res = await api.users.getUsers({ role: "teacher", page, page_size: 100 });
+          const { results, next } = extractPaginatedList(res);
+          all = all.concat(results);
+          if (next && results.length > 0) {
+            page += 1;
+          } else {
+            hasNext = false;
+          }
+        }
+        return all;
+      };
+
+      // 2. Fetch Sections with proper pagination
+      const fetchAllSections = async () => {
+        if (!api.academics?.getSections) return [];
+        let all = [];
+        let page = 1;
+        let hasNext = true;
+        while (hasNext && page <= 20) {
+          const res = await api.academics.getSections({ page, page_size: 100 });
+          const { results, next } = extractPaginatedList(res);
+          all = all.concat(results);
+          if (next && results.length > 0) {
+            page += 1;
+          } else {
+            hasNext = false;
+          }
+        }
+        return all;
+      };
+
+      // 3. Fetch Grade Subjects with proper pagination
+      const fetchAllGradeSubjects = async () => {
+        if (!api.academics?.getGradeSubjects) return [];
+        let all = [];
+        let page = 1;
+        let hasNext = true;
+        while (hasNext && page <= 20) {
+          const res = await api.academics.getGradeSubjects({ page, page_size: 100 });
+          const { results, next } = extractPaginatedList(res);
+          all = all.concat(results);
+          if (next && results.length > 0) {
+            page += 1;
+          } else {
+            hasNext = false;
+          }
+        }
+        return all;
+      };
+
+      const [teachersList, gsList, secList, glData] = await Promise.all([
+        fetchAllTeachers().catch(() => []),
+        fetchAllGradeSubjects().catch(() => []),
+        fetchAllSections().catch(() => []),
         api.academics?.getGradeLevels
           ? api.academics.getGradeLevels().catch(() => null)
           : null,
       ]);
 
-      const teacherList = extractPaginatedList(usersData).results;
-      if (teacherList && teacherList.length > 0) {
-        setTeachers(teacherList);
-      } else {
-        const allUsers = await api.users.getUsers().catch(() => null);
-        const allList = extractPaginatedList(allUsers).results;
-        setTeachers(allList || []);
-      }
-
-      if (gsData) {
-        setGradeSubjects(extractPaginatedList(gsData).results || []);
-      }
-      if (secData) {
-        setSections(extractPaginatedList(secData).results || []);
-      }
+      setTeachers(teachersList || []);
+      setGradeSubjects(gsList || []);
+      setSections(secList || []);
       if (glData) {
         setGradeLevels(extractPaginatedList(glData).results || []);
       }

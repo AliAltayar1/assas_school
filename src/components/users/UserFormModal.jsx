@@ -4,6 +4,8 @@ import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { Alert } from '../ui/Alert';
 import { parseApiError } from '../../utils/errorUtils';
+import { useAuthStore } from '../../store/useAuthStore';
+import { isSupervisor } from '../../utils/permissionUtils';
 import { User, Mail, CreditCard, Phone } from 'lucide-react';
 
 // Syrian Mobile Number Helpers
@@ -36,6 +38,8 @@ export function isValidNationalId(id) {
 
 export function UserFormModal({ isOpen, onClose, onSubmit, initialUser = null }) {
   const isEditing = Boolean(initialUser);
+  const { user: currentUser } = useAuthStore();
+  const isCurrentUserSupervisor = isSupervisor(currentUser);
 
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -141,6 +145,51 @@ export function UserFormModal({ isOpen, onClose, onSubmit, initialUser = null })
       const cleanNatId = nationalId.trim();
       const cleanPhone = phoneNumber.trim();
 
+      // ==========================================
+      // EDIT MODE (PATCH):
+      // Send ONLY editable fields according to backend requirements.
+      // CRITICAL: DO NOT send 'role' or 'supervisor_scope' (even if unchanged) -
+      // backend treats sending them as an attempt to modify role/scope,
+      // which triggers 403 ACCOUNT_ROLE_OR_SCOPE_UPDATE_FORBIDDEN for supervisors.
+      // ==========================================
+      if (isEditing) {
+        const editPayload = {
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          phone_number: cleanPhone,
+          national_id: cleanNatId,
+        };
+
+        if (email.trim()) {
+          editPayload.email = email.trim();
+        }
+
+        // Only include username if explicitly changed
+        if (username.trim() && username.trim() !== initialUser?.username) {
+          editPayload.username = username.trim();
+        }
+
+        // Only authorized admins/superusers can update role, and ONLY if changed
+        if (!isCurrentUserSupervisor && role && role !== initialUser?.role) {
+          editPayload.role = role;
+        }
+
+        // Only authorized admins/superusers can update supervisor scope, and ONLY if changed
+        if (!isCurrentUserSupervisor && role === 'supervisor' && scopeType) {
+          editPayload.supervisor_scope = {
+            scope_type: scopeType,
+            stages: scopeType === 'selected_stages' ? selectedStages : [],
+          };
+        }
+
+        await onSubmit(editPayload);
+        onClose();
+        return;
+      }
+
+      // ==========================================
+      // CREATE MODE (POST):
+      // ==========================================
       const payload = {
         username: username.trim(),
         email: email.trim(),
@@ -159,24 +208,17 @@ export function UserFormModal({ isOpen, onClose, onSubmit, initialUser = null })
         payload.stages = scopeType === 'selected_stages' ? selectedStages : [];
       }
 
-      // 1. Direct fields on payload
       if (cleanNatId) {
         payload.national_id = cleanNatId;
         payload.national_number = cleanNatId;
-      } else if (isEditing) {
-        payload.national_id = '';
-        payload.national_number = '';
       }
 
       if (cleanPhone) {
         payload.phone_number = cleanPhone;
         payload.phone = cleanPhone;
-      } else if (isEditing) {
-        payload.phone_number = '';
-        payload.phone = '';
       }
 
-      // 2. Guardian object matching StudentRegistrationModal:
+      // Guardian object matching StudentRegistrationModal:
       payload.guardian = {
         national_id: cleanNatId,
         first_name: firstName.trim(),
@@ -187,7 +229,7 @@ export function UserFormModal({ isOpen, onClose, onSubmit, initialUser = null })
         payload.guardian.phone_number = cleanPhone;
       }
 
-      // 3. Profile objects for broader backend compatibility
+      // Profile objects for broader backend compatibility
       payload.profile = {
         national_id: cleanNatId,
         phone_number: cleanPhone,
@@ -331,8 +373,8 @@ export function UserFormModal({ isOpen, onClose, onSubmit, initialUser = null })
             <select
               value={role}
               onChange={(e) => setRole(e.target.value)}
-              disabled={isSubmitting}
-              className="w-full rounded-lg border border-slate-300 bg-white text-xs px-3 py-2.5 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+              disabled={isSubmitting || (isEditing && isCurrentUserSupervisor)}
+              className="w-full rounded-lg border border-slate-300 bg-white text-xs px-3 py-2.5 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:bg-slate-100 disabled:text-slate-500 cursor-pointer disabled:cursor-not-allowed"
             >
               <option value="guardian">ولي أمر (guardian / parent)</option>
               <option value="teacher">معلم (teacher)</option>
@@ -343,9 +385,14 @@ export function UserFormModal({ isOpen, onClose, onSubmit, initialUser = null })
               <option value="tech_support">دعم تقني (tech_support)</option>
             </select>
           </div>
+          {isEditing && isCurrentUserSupervisor && (
+            <p className="text-[10px] text-slate-400 mt-1">
+              🔒 لا يمكن للموجّه التربوي تعديل الدور الوظيفي للمستخدم (تعديل البيانات الأساسية فقط).
+            </p>
+          )}
         </div>
 
-        {role === 'supervisor' && (
+        {role === 'supervisor' && !(isEditing && isCurrentUserSupervisor) && (
           <div className="bg-purple-50/70 border border-purple-200/90 rounded-xl p-3.5 space-y-3">
             <div>
               <label className="block text-xs font-bold text-purple-950 mb-1">

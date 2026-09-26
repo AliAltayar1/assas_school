@@ -6,11 +6,13 @@ import {
   canViewStudentProfile,
   getHomeRouteForRole,
 } from "../../utils/permissionUtils";
-import { parseApiError } from "../../utils/errorUtils";
+import { parseApiError, extractPaginatedList } from "../../utils/errorUtils";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Alert } from "../../components/ui/Alert";
 import { Pagination } from "../../components/ui/Pagination";
+import { ConfirmModal } from "../../components/ui/ConfirmModal";
+import { StudentPointModal } from "../../components/students/StudentPointModal";
 import { toast } from "sonner";
 import {
   User,
@@ -38,6 +40,9 @@ import {
   Sparkles,
   ChevronLeft,
   Copy,
+  Edit2,
+  Trash2,
+  Plus,
 } from "lucide-react";
 
 // =========================================================================
@@ -95,10 +100,16 @@ function formatDateTime(isoString) {
 export function StudentProfilePage() {
   const { studentId } = useParams();
   const navigate = useNavigate();
-  const { user, requesterRole, permissions } = useAuthStore();
+  const { user, requesterRole, permissions, hasPermission } = useAuthStore();
 
   const isAllowed = canViewStudentProfile(user, requesterRole, permissions);
   const basePath = getHomeRouteForRole(user);
+
+  // Student Points Permissions
+  const canViewPoints = hasPermission("behavior.view_studentpointentry");
+  const canAddPoint = hasPermission("behavior.add_studentpointentry");
+  const canChangePoint = hasPermission("behavior.change_studentpointentry");
+  const canDeletePoint = hasPermission("behavior.delete_studentpointentry");
 
   // =========================================================================
   // State
@@ -112,7 +123,7 @@ export function StudentProfilePage() {
   const [academicYears, setAcademicYears] = useState([]);
   const [selectedYearId, setSelectedYearId] = useState("");
 
-  // Active Tab: 'personal' | 'guardians' | 'health' | 'attendance' | 'grades' | 'behavior' | 'finance'
+  // Active Tab: 'personal' | 'guardians' | 'health' | 'attendance' | 'grades' | 'behavior' | 'points' | 'finance'
   const [activeTab, setActiveTab] = useState("personal");
 
   // Finance Subtab: 'payments' | 'discounts'
@@ -124,6 +135,22 @@ export function StudentProfilePage() {
   const [behaviorPage, setBehaviorPage] = useState(1);
   const [paymentsPage, setPaymentsPage] = useState(1);
   const [discountsPage, setDiscountsPage] = useState(1);
+
+  // Points Tab State
+  const [studentPoints, setStudentPoints] = useState([]);
+  const [pointsLoading, setPointsLoading] = useState(false);
+  const [pointsError, setPointsError] = useState(null);
+  const [pointsPage, setPointsPage] = useState(1);
+  const [pointsTotal, setPointsTotal] = useState(0);
+  const [pointsHasNext, setPointsHasNext] = useState(false);
+  const [pointsHasPrev, setPointsHasPrev] = useState(false);
+
+  // Points Modals State
+  const [isAddPointModalOpen, setIsAddPointModalOpen] = useState(false);
+  const [isEditPointModalOpen, setIsEditPointModalOpen] = useState(false);
+  const [isDeletePointModalOpen, setIsDeletePointModalOpen] = useState(false);
+  const [selectedPoint, setSelectedPoint] = useState(null);
+  const [isDeletingPoint, setIsDeletingPoint] = useState(false);
 
   // =========================================================================
   // 1. Fetch Academic Years
@@ -268,6 +295,64 @@ export function StudentProfilePage() {
     toast.success("تم نسخ معرّف الطالب بنجاح");
   };
 
+  // Fetch Student Points
+  const fetchStudentPoints = useCallback(
+    async (page = 1) => {
+      if (!studentId) return;
+      setPointsLoading(true);
+      setPointsError(null);
+      try {
+        const params = {
+          student: studentId,
+          ordering: "-occurred_on",
+          page,
+          page_size: 10,
+        };
+        if (profileData?.enrollment?.id) {
+          params.enrollment = profileData.enrollment.id;
+        } else if (selectedYearId) {
+          params.academic_year = selectedYearId;
+        }
+        const res = await api.behavior.getPoints(params);
+        const paginated = extractPaginatedList(res);
+        setStudentPoints(paginated);
+        setPointsTotal(paginated.count || 0);
+        setPointsHasNext(Boolean(paginated.next));
+        setPointsHasPrev(Boolean(paginated.previous));
+        setPointsPage(page);
+      } catch (err) {
+        setPointsError(parseApiError(err) || "تعذر تحميل سجل نقاط الطالب");
+      } finally {
+        setPointsLoading(false);
+      }
+    },
+    [studentId, profileData?.enrollment?.id, selectedYearId]
+  );
+
+  // Re-fetch points when activeTab becomes 'points' or academic year changes
+  useEffect(() => {
+    if (activeTab === "points") {
+      fetchStudentPoints(1);
+    }
+  }, [activeTab, selectedYearId, fetchStudentPoints]);
+
+  const handleDeletePoint = async () => {
+    if (!selectedPoint?.id) return;
+    setIsDeletingPoint(true);
+    try {
+      await api.behavior.deletePoint(selectedPoint.id);
+      toast.success("تم حذف سجل النقاط بنجاح.");
+      setIsDeletePointModalOpen(false);
+      setSelectedPoint(null);
+      fetchStudentPoints(pointsPage);
+      fetchProfile();
+    } catch (err) {
+      toast.error(parseApiError(err) || "فشل حذف سجل النقاط");
+    } finally {
+      setIsDeletingPoint(false);
+    }
+  };
+
   // =========================================================================
   // 3. Security Guard (Role & Permission)
   // =========================================================================
@@ -325,7 +410,10 @@ export function StudentProfilePage() {
     grades = {},
     behavior = {},
     finance = {},
+    points = {},
   } = profileData;
+
+  const pointsSummary = points?.summary || profileData?.points?.summary || { total_points: 0, entries_count: 0 };
 
   const attendanceSummary = attendance?.summary || {};
   const attendanceRecords = attendance?.records || { results: [], count: 0 };
@@ -540,9 +628,9 @@ export function StudentProfilePage() {
       </div>
 
       {/* ========================================================================= */}
-      {/* 3. QUICK STATS KPI CARDS (8 CARDS)                                        */}
+      {/* 3. QUICK STATS KPI CARDS (9 CARDS)                                        */}
       {/* ========================================================================= */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-3">
         {/* 1. نسبة الحضور */}
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-1">
           <div className="flex items-center justify-between text-slate-500 text-[11px] font-bold">
@@ -667,6 +755,35 @@ export function StudentProfilePage() {
             {financeSummary ? "الذمة المالية" : "لا يوجد حساب"}
           </span>
         </div>
+
+        {/* 9. نقاط الطالب */}
+        <div
+          onClick={() => canViewPoints && setActiveTab("points")}
+          className={`bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-1 transition-all ${
+            canViewPoints
+              ? "cursor-pointer hover:border-amber-300 hover:bg-amber-50/20"
+              : ""
+          }`}
+          title={canViewPoints ? "اضغط لعرض تفاصيل سجل نقاط الطالب" : ""}
+        >
+          <div className="flex items-center justify-between text-slate-500 text-[11px] font-bold">
+            <span>نقاط الطالب</span>
+            <Award className="w-3.5 h-3.5 text-amber-500" />
+          </div>
+          <p className="text-base sm:text-lg font-black text-amber-600 font-mono">
+            {pointsSummary.total_points ?? 0}
+          </p>
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="text-amber-700/80 font-bold block truncate">
+              {pointsSummary.entries_count ?? 0} سجلات
+            </span>
+            {canViewPoints && (
+              <span className="text-teal-700 font-bold hover:underline">
+                التفاصيل
+              </span>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* ========================================================================= */}
@@ -773,6 +890,25 @@ export function StudentProfilePage() {
               {behaviorNotes?.count || 0}
             </span>
           </button>
+
+          {/* Tab: Student Points */}
+          {canViewPoints && (
+            <button
+              type="button"
+              onClick={() => setActiveTab("points")}
+              className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                activeTab === "points"
+                  ? "bg-white text-teal-800 shadow-xs border border-slate-200/80"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+              }`}
+            >
+              <Award className="w-4 h-4 text-amber-500" />
+              <span>نقاط الطالب</span>
+              <span className="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold">
+                {pointsSummary.total_points ?? 0}
+              </span>
+            </button>
+          )}
 
           {/* Tab 7: Finance */}
           <button
@@ -1607,6 +1743,193 @@ export function StudentProfilePage() {
           )}
 
           {/* ========================================================================= */}
+          {/* TAB: STUDENT POINTS                                                       */}
+          {/* ========================================================================= */}
+          {activeTab === "points" && (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2 mb-1">
+                    <Award className="w-4 h-4 text-amber-500" />
+                    <span>سجل نقاط الطالب التحفيزية</span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    النقاط الإيجابية الممنوحة للطالب مع الأسباب وتاريخ المنح للسنة الدراسية المحددة ({academic_year?.name || "-"})
+                  </p>
+                </div>
+
+                {canAddPoint && (
+                  <Button
+                    onClick={() => {
+                      if (!enrollment?.id) {
+                        toast.warning("لا يمكن منح نقاط لطالب غير مقيد في هذه السنة الدراسية.");
+                        return;
+                      }
+                      setIsAddPointModalOpen(true);
+                    }}
+                    disabled={!enrollment?.id}
+                    className="gap-1.5 text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white shrink-0"
+                    title={!enrollment?.id ? "الطالب غير مقيد في هذه السنة الدراسية" : ""}
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>إضافة نقاط للطالب</span>
+                  </Button>
+                )}
+              </div>
+
+              {/* Summary Badges */}
+              <div className="flex flex-wrap items-center gap-3 bg-amber-50/60 p-3 rounded-xl border border-amber-200/80 text-xs">
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-amber-600" />
+                  <span>
+                    مجموع النقاط:{" "}
+                    <strong className="text-amber-900 font-black text-sm font-mono">
+                      {pointsSummary.total_points ?? 0}
+                    </strong>{" "}
+                    نقطة
+                  </span>
+                </div>
+                <span>•</span>
+                <span>
+                  عدد السجلات:{" "}
+                  <strong className="text-slate-900 font-bold">
+                    {pointsSummary.entries_count ?? 0}
+                  </strong>
+                </span>
+                <span>•</span>
+                <span className="text-slate-500 text-[11px]">
+                  النقاط مسجلة حصرياً لقيد السنة الدراسية المعروضة
+                </span>
+              </div>
+
+              {pointsError && (
+                <Alert type="error" title="خطأ في تحميل النقاط">
+                  {pointsError}
+                </Alert>
+              )}
+
+              {pointsLoading ? (
+                <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-500 text-xs space-y-2">
+                  <RefreshCw className="w-5 h-5 animate-spin mx-auto text-teal-600" />
+                  <p>جاري تحميل سجل نقاط الطالب...</p>
+                </div>
+              ) : studentPoints.length === 0 ? (
+                <div className="bg-slate-50 border border-dashed border-slate-300 rounded-2xl p-10 text-center space-y-2 text-slate-500 text-xs">
+                  <Award className="w-10 h-10 text-amber-400 mx-auto" />
+                  <p className="font-bold text-slate-700 text-sm">
+                    لا توجد نقاط مسجلة للطالب في هذه السنة الدراسية.
+                  </p>
+                  <p className="text-slate-500 max-w-md mx-auto">
+                    يمكن للموظفين المخولين منح نقاط إيجابية تشجيعية للطالب مع توثيق السبب والتاريخ لتعزيز السلوك الإيجابي.
+                  </p>
+                  {canAddPoint && enrollment?.id && (
+                    <div className="pt-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => setIsAddPointModalOpen(true)}
+                        className="gap-1.5 text-xs font-bold text-teal-800 border-teal-300"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>إضافة أول سجل نقاط</span>
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-2xs">
+                    <table className="w-full text-right text-xs">
+                      <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                        <tr>
+                          <th className="py-3 px-4 w-32 whitespace-nowrap">التاريخ</th>
+                          <th className="py-3 px-4 w-28 whitespace-nowrap">النقاط</th>
+                          <th className="py-3 px-4">سبب منح النقاط</th>
+                          <th className="py-3 px-4 w-36 whitespace-nowrap">أضيف بواسطة</th>
+                          <th className="py-3 px-4 w-36 whitespace-nowrap">تاريخ التسجيل</th>
+                          {(canChangePoint || canDeletePoint) && (
+                            <th className="py-3 px-4 w-28 text-center whitespace-nowrap">الإجراءات</th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {studentPoints.map((pt) => (
+                          <tr key={pt.id} className="hover:bg-slate-50/70 transition-colors">
+                            <td className="py-3 px-4 font-mono font-bold text-slate-800 whitespace-nowrap">
+                              {pt.occurred_on}
+                            </td>
+                            <td className="py-3 px-4 whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1 font-mono font-black text-xs text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                                +{pt.points} نقطة
+                              </span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <p className="font-semibold text-slate-800 leading-relaxed">
+                                {pt.note}
+                              </p>
+                            </td>
+                            <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                              <span className="bg-slate-100 px-2 py-0.5 rounded text-[11px] font-mono text-slate-700">
+                                {pt.created_by_username || pt.created_by_name || pt.created_by || "-"}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-slate-400 font-mono text-[11px] whitespace-nowrap">
+                              {pt.created_at ? formatDateTime(pt.created_at) : "-"}
+                            </td>
+                            {(canChangePoint || canDeletePoint) && (
+                              <td className="py-3 px-4 whitespace-nowrap">
+                                <div className="flex items-center justify-center gap-1">
+                                  {canChangePoint && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedPoint(pt);
+                                        setIsEditPointModalOpen(true);
+                                      }}
+                                      className="p-1.5 text-slate-500 hover:text-teal-700 hover:bg-slate-100 rounded-lg transition-colors"
+                                      title="تعديل النقاط"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  {canDeletePoint && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedPoint(pt);
+                                        setIsDeletePointModalOpen(true);
+                                      }}
+                                      className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                      title="حذف النقاط"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {pointsTotal > 10 && (
+                    <Pagination
+                      currentPage={pointsPage}
+                      totalCount={pointsTotal}
+                      pageSize={10}
+                      onPageChange={(p) => fetchStudentPoints(p)}
+                      hasNext={pointsHasNext}
+                      hasPrevious={pointsHasPrev}
+                      itemName="سجل نقاط"
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ========================================================================= */}
           {/* TAB 7: FINANCE                                                            */}
           {/* ========================================================================= */}
           {activeTab === "finance" && (
@@ -1977,6 +2300,53 @@ export function StudentProfilePage() {
           )}
         </div>
       </div>
+
+      {/* Add Point Modal */}
+      <StudentPointModal
+        isOpen={isAddPointModalOpen}
+        onClose={() => setIsAddPointModalOpen(false)}
+        onSuccess={() => {
+          fetchStudentPoints(1);
+          fetchProfile();
+        }}
+        enrollmentId={enrollment?.id}
+        studentName={student?.full_name}
+      />
+
+      {/* Edit Point Modal */}
+      <StudentPointModal
+        isOpen={isEditPointModalOpen}
+        onClose={() => {
+          setIsEditPointModalOpen(false);
+          setSelectedPoint(null);
+        }}
+        onSuccess={() => {
+          fetchStudentPoints(pointsPage);
+          fetchProfile();
+        }}
+        pointRecord={selectedPoint}
+        enrollmentId={enrollment?.id}
+        studentName={student?.full_name}
+      />
+
+      {/* Delete Point Confirm Modal */}
+      <ConfirmModal
+        isOpen={isDeletePointModalOpen}
+        onClose={() => {
+          setIsDeletePointModalOpen(false);
+          setSelectedPoint(null);
+        }}
+        onConfirm={handleDeletePoint}
+        title="حذف سجل نقاط الطالب"
+        message={
+          selectedPoint
+            ? `هل أنت متأكد من رغبتك في حذف سجل النقاط (${selectedPoint.points} نقطة - "${selectedPoint.note}")؟ سيتم تحديث مجموع نقاط الطالب تلقائيًا.`
+            : "هل أنت متأكد من حذف هذا السجل؟"
+        }
+        confirmText="تأكيد الحذف"
+        variant="danger"
+        isLoading={isDeletingPoint}
+      />
     </div>
   );
 }

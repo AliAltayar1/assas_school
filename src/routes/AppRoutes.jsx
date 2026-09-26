@@ -29,6 +29,7 @@ const AcademicManagement = lazy(() => import('../pages/admin/AcademicManagement'
 const TeacherManagement = lazy(() => import('../pages/admin/TeacherManagement').then(m => ({ default: m.TeacherManagement })));
 const StudentManagement = lazy(() => import('../pages/admin/StudentManagement').then(m => ({ default: m.StudentManagement })));
 const StudentProfilePage = lazy(() => import('../pages/students/StudentProfilePage').then(m => ({ default: m.StudentProfilePage })));
+const StudentImportPage = lazy(() => import('../pages/students/StudentImportPage').then(m => ({ default: m.StudentImportPage })));
 const BehaviorManagement = lazy(() => import('../pages/admin/BehaviorManagement').then(m => ({ default: m.BehaviorManagement })));
 const HomeworkManagement = lazy(() => import('../pages/admin/HomeworkManagement').then(m => ({ default: m.HomeworkManagement })));
 const AnnouncementManagement = lazy(() => import('../pages/admin/AnnouncementManagement').then(m => ({ default: m.AnnouncementManagement })));
@@ -87,7 +88,7 @@ export function AppRoutes() {
             <Route element={<ProtectedRoute allowedRoles={['secretariat', 'secretary', 'school_admin', 'admin']} />}>
               <Route path="/secretariat" element={<SecretariatOverview />} />
               <Route path="/secretariat/statistics" element={<SecretariatOverview />} />
-              <Route path="/secretariat/excel-import" element={<SecretariatOverview />} />
+              <Route path="/secretariat/excel-import" element={<Navigate to="/secretariat/students/import" replace />} />
             </Route>
 
             <Route element={<ProtectedRoute allowedRoles={['supervisor', 'educational_supervisor', 'school_admin', 'admin']} />}>
@@ -121,6 +122,7 @@ export function AppRoutes() {
               <Route path="/admin/assignments" element={<TeacherManagement />} />
               <Route path="/secretariat/teachers" element={<TeacherManagement />} />
               <Route path="/secretariat/assignments" element={<TeacherManagement />} />
+              <Route path="/supervisor/teachers" element={<TeacherManagement />} />
               <Route path="/supervisor/teaching-assignments" element={<TeacherManagement />} />
               <Route path="/supervisor/assignments" element={<TeacherManagement />} />
               <Route path="/teacher/assignments" element={<TeacherManagement />} />
@@ -146,6 +148,20 @@ export function AppRoutes() {
               <Route path="/admin/students/:studentId/profile" element={<StudentProfilePage />} />
               <Route path="/secretariat/students/:studentId/profile" element={<StudentProfilePage />} />
               <Route path="/supervisor/students/:studentId/profile" element={<StudentProfilePage />} />
+            </Route>
+
+            {/* Student Excel Import (Restricted to School Admin, Secretariat, Superuser) */}
+            <Route
+              element={
+                <ProtectedRoute
+                  allowedRoles={['school_admin', 'admin', 'secretariat', 'secretary']}
+                />
+              }
+            >
+              <Route path="/admin/students/import" element={<StudentImportPage />} />
+              <Route path="/admin/students/import-excel" element={<StudentImportPage />} />
+              <Route path="/secretariat/students/import" element={<StudentImportPage />} />
+              <Route path="/secretariat/students/import-excel" element={<StudentImportPage />} />
             </Route>
 
             {/* Daily Attendance */}

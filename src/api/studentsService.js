@@ -116,6 +116,15 @@ export const studentsService = {
     return res.data;
   },
 
+  // POST /api/v1/students/enrollments/{id}/correct-placement/ - Section Placement Correction
+  correctPlacement: async (id, data) => {
+    const res = await axiosInstance.post(
+      `/students/enrollments/${id}/correct-placement/`,
+      data
+    );
+    return res.data;
+  },
+
   // ==========================================
   // 4. COMPREHENSIVE PROFILE (/students/{student_id}/profile/)
   // ==========================================
@@ -131,6 +140,54 @@ export const studentsService = {
       params: cleanParams,
     });
     return res.data;
+  },
+
+  // ==========================================
+  // 5. EXCEL IMPORT WORKFLOW (/students/imports/)
+  // ==========================================
+  // 1. Upload & Validate Excel file
+  uploadStudentImport: async (file) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await axiosInstance.post("/students/imports/", formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
+    return res.data;
+  },
+
+  // 2. Get Job details and current summary counts
+  getImportJob: async (jobId) => {
+    const res = await axiosInstance.get(`/students/imports/${jobId}/`);
+    return res.data;
+  },
+
+  // 3. Get Job rows with errors and pagination
+  getImportRows: async (jobId, params = {}) => {
+    const res = await axiosInstance.get(`/students/imports/${jobId}/rows/`, {
+      params,
+    });
+    return res.data;
+  },
+
+  // 4. Process next batch (Body is intentionally empty)
+  processImportBatch: async (jobId) => {
+    const res = await axiosInstance.post(`/students/imports/${jobId}/process/`, {});
+    return res.data;
+  },
+
+  // ==========================================
+  // 6. EXCEL EXPORT WORKFLOW
+  // ==========================================
+  exportStudentsToExcel: async (studentsList, options) => {
+    const { exportStudentsToExcel } = await import("../utils/studentExportUtils");
+    return exportStudentsToExcel(studentsList, options);
+  },
+
+  downloadImportTemplate: async (options) => {
+    const { downloadStudentImportTemplate } = await import("../utils/studentExportUtils");
+    return downloadStudentImportTemplate(options);
   },
 };
 

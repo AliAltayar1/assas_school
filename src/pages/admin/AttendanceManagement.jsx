@@ -119,6 +119,9 @@ export function AttendanceManagement() {
   const canView =
     hasPermission("attendance.view_attendancesheet") ||
     hasPermission("attendance.view_attendancerecord") ||
+    hasPermission("academics.view_section") ||
+    hasPermission("students.view_enrollment") ||
+    hasPermission("students.view_student") ||
     isSuperuser;
 
   const hasAccess = canView || canAddSheet || canChangeSheet || canChangeRecord;
@@ -213,21 +216,38 @@ export function AttendanceManagement() {
     let isMounted = true;
     const fetchAcademicData = async () => {
       try {
-        const [yearsRes, gradesRes, sectionsRes] = await Promise.all([
+        // Fetch all sections with pagination handling to load all allowed sections within academic scope
+        const fetchAllSections = async () => {
+          let all = [];
+          let page = 1;
+          let hasNext = true;
+          while (hasNext && page <= 20) {
+            const res = await api.academics.getSections({ page, page_size: 100 });
+            const { results, next } = extractPaginatedList(res);
+            all = all.concat(results);
+            if (next && results.length > 0) {
+              page += 1;
+            } else {
+              hasNext = false;
+            }
+          }
+          return all;
+        };
+
+        const [yearsRes, gradesRes, secs] = await Promise.all([
           api.academics.getYears({ page_size: 100 }).catch(() => []),
           api.academics.getGradeLevels({ page_size: 100 }).catch(() => []),
-          api.academics.getSections({ page_size: 200 }).catch(() => []),
+          fetchAllSections().catch(() => []),
         ]);
 
         if (!isMounted) return;
 
         const years = extractPaginatedList(yearsRes);
         const grades = extractPaginatedList(gradesRes);
-        const secs = extractPaginatedList(sectionsRes);
 
         setAcademicYears(years);
         setGradeLevels(grades);
-        setSections(secs);
+        setSections(secs || []);
 
         // Auto-select active year
         const activeYear = years.find((y) => y.is_active) || years[0];
@@ -245,14 +265,39 @@ export function AttendanceManagement() {
     };
   }, []);
 
-  // Filter sections by selected Grade Level
+  // Safely derive grade levels list (combining API gradeLevels + derived from sections if gradeLevels was restricted)
+  const derivedGradeLevels = useMemo(() => {
+    const map = new Map();
+    (gradeLevels || []).forEach((gl) => {
+      if (gl?.id) map.set(gl.id, gl);
+    });
+    (sections || []).forEach((sec) => {
+      if (typeof sec.grade_level === "object" && sec.grade_level?.id) {
+        if (!map.has(sec.grade_level.id)) {
+          map.set(sec.grade_level.id, sec.grade_level);
+        }
+      } else if (sec.grade_level && (sec.grade_level_name || sec.grade_level_display)) {
+        if (!map.has(sec.grade_level)) {
+          map.set(sec.grade_level, {
+            id: sec.grade_level,
+            name: sec.grade_level_name || sec.grade_level_display,
+          });
+        }
+      }
+    });
+    return Array.from(map.values());
+  }, [gradeLevels, sections]);
+
+  // Filter sections by selected Grade Level safely (handling object or string ID)
   const availableSections = useMemo(() => {
     if (!selectedGradeLevel) return sections;
-    return sections.filter(
-      (s) =>
-        s.grade_level === selectedGradeLevel ||
-        s.grade_level_id === selectedGradeLevel
-    );
+    return sections.filter((s) => {
+      const gId =
+        typeof s.grade_level === "object" && s.grade_level !== null
+          ? s.grade_level.id
+          : s.grade_level || s.grade_level_id;
+      return gId === selectedGradeLevel;
+    });
   }, [sections, selectedGradeLevel]);
 
   // Selected Section Object
@@ -262,8 +307,8 @@ export function AttendanceManagement() {
 
   // Selected Grade Level Object
   const selectedGradeLevelObj = useMemo(() => {
-    return gradeLevels.find((g) => g.id === selectedGradeLevel);
-  }, [gradeLevels, selectedGradeLevel]);
+    return derivedGradeLevels.find((g) => g.id === selectedGradeLevel);
+  }, [derivedGradeLevels, selectedGradeLevel]);
 
   // Track if today is selected
   const isTodaySelected = useMemo(() => {
@@ -304,29 +349,57 @@ export function AttendanceManagement() {
       setIsDirty(false);
 
       try {
-        // Step 1: Check if an Attendance Sheet already exists for this section & date
-        const sheetListRes = await api.attendance.getSheets({
-          section: sectionId,
-          attendance_date: dateStr,
-          page_size: 5,
-        });
+        // Step 1: Fetch Students from Official Attendance Roster (Single Source of Truth)
+        // Correctly handles DRF paginated responses ({ count, results: [...] }) via extractPaginatedList
+        const fetchAllRoster = async (secId) => {
+          let all = [];
+          let page = 1;
+          let hasNext = true;
+          while (hasNext && page <= 20) {
+            const rosterRes = await api.attendance.getRoster(secId, { page, page_size: 100 });
+            const { results, next } = extractPaginatedList(rosterRes);
+            all = all.concat(results);
+            if (next && results.length > 0) {
+              page += 1;
+            } else {
+              hasNext = false;
+            }
+          }
+          return all;
+        };
 
-        const sheets = extractPaginatedList(sheetListRes);
+        const rosterList = await fetchAllRoster(sectionId);
 
-        if (sheets.length > 0) {
-          // Sheet exists for this day -> Fetch full sheet details (with records)
-          const sheetId = sheets[0].id;
-          const fullSheetRes = await api.attendance.getSheetById(sheetId);
-          const sheetData = fullSheetRes.data || fullSheetRes;
+        // Step 2: Check if an Attendance Sheet already exists for this section & date
+        let existingSheetData = null;
+        try {
+          const sheetListRes = await api.attendance.getSheets({
+            section: sectionId,
+            attendance_date: dateStr,
+            page_size: 5,
+          });
 
-          setExistingSheet(sheetData);
+          const sheets = extractPaginatedList(sheetListRes);
+          if (sheets.length > 0) {
+            const fullSheetRes = await api.attendance.getSheetById(sheets[0].id);
+            existingSheetData = fullSheetRes?.data || fullSheetRes;
+          }
+        } catch (sheetErr) {
+          // If sheets listing is restricted or empty, gracefully proceed with Roster
+          console.warn("No existing sheet found or check failed:", sheetErr);
+        }
+
+        // Step 3: Map data to local state
+        if (
+          existingSheetData &&
+          Array.isArray(existingSheetData.records) &&
+          existingSheetData.records.length > 0
+        ) {
+          // Existing Sheet Found -> view/edit mode
+          setExistingSheet(existingSheetData);
           setSheetMode("view_edit");
 
-          const records = Array.isArray(sheetData.records)
-            ? sheetData.records
-            : [];
-
-          // Map existing records to local state
+          const records = existingSheetData.records;
           const mappedRows = records.map((rec) => {
             const arrTime = rec.arrival_time ? rec.arrival_time.slice(0, 5) : "08:00";
             return {
@@ -354,23 +427,43 @@ export function AttendanceManagement() {
             };
           });
 
-          setStudentRows(mappedRows);
+          // Merge any roster students who don't have records in the existing sheet yet (e.g., enrolled today)
+          const existingStudentIds = new Set(
+            records.map((r) => r.student || r.student_id)
+          );
+          const missingFromSheet = (rosterList || []).filter(
+            (stu) => !existingStudentIds.has(stu.student)
+          );
+          const newRosterRows = missingFromSheet.map((stu) => ({
+            enrollment: stu.enrollment,
+            student: stu.student,
+            student_display: stu.student_display || "طالب",
+            status: "present",
+            status_display: "حاضر",
+            arrival_time: defaultArrivalTime,
+            arrival_method: stu.usual_arrival_method || "guardian",
+            arrival_method_display: stu.usual_arrival_method_display || "ولي الأمر",
+            departure_time: "",
+            departure_method: "",
+            usual_arrival_method: stu.usual_arrival_method || "guardian",
+            usual_departure_method: stu.usual_departure_method || "guardian",
+            absence_type: "",
+            absence_reason: "",
+            absence_reason_source: "",
+            notes: "",
+            is_custom_time: false,
+            is_modified: true,
+          }));
+
+          const finalRows = [...mappedRows, ...newRosterRows];
+          setStudentRows(finalRows);
           setOriginalStudentRows(JSON.parse(JSON.stringify(mappedRows)));
         } else {
-          // No sheet exists for this day -> Fetch Attendance Roster
+          // No Existing Sheet for this date -> Initialize from Official Attendance Roster (Create mode)
           setExistingSheet(null);
           setSheetMode("create");
 
-          const rosterRes = await api.attendance.getRoster(sectionId);
-          const rosterList = Array.isArray(rosterRes.data)
-            ? rosterRes.data
-            : Array.isArray(rosterRes)
-            ? rosterRes
-            : [];
-
-          // Initialize local state for each student
-          // Rule: All students present by default, arrival_time 08:00, arrival_method = usual_arrival_method
-          const mappedRoster = rosterList.map((stu) => {
+          const mappedRoster = (rosterList || []).map((stu) => {
             const usualArrival = stu.usual_arrival_method || "guardian";
             const usualDeparture = stu.usual_departure_method || "guardian";
             return {
@@ -402,7 +495,7 @@ export function AttendanceManagement() {
         console.error("Error fetching attendance data:", err);
         const errMsg = parseApiError(
           err,
-          "تعذر جلب بيانات الحضور أو قائمة طلاب الشعبة."
+          "تعذر جلب بيانات الحضور أو قائمة طلاب الشعبة من Roster."
         );
         setSheetError(errMsg);
       } finally {
@@ -1183,7 +1276,7 @@ export function AttendanceManagement() {
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 transition-all"
                 >
                   <option value="">-- كل الصفوف --</option>
-                  {gradeLevels.map((g) => (
+                  {derivedGradeLevels.map((g) => (
                     <option key={g.id} value={g.id}>
                       {g.name}
                     </option>

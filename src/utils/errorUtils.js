@@ -45,9 +45,11 @@ export const FIELD_LABELS = {
   note_type: "نوع الملاحظة السلوكية",
   title: "عنوان الملاحظة",
   description: "تفاصيل الملاحظة",
-  occurred_on: "تاريخ الملاحظة",
+  occurred_on: "تاريخ الملاحظة / النقاط",
   occurred_from: "من تاريخ",
   occurred_to: "إلى تاريخ",
+  points: "عدد النقاط",
+  note: "سبب منح النقاط",
   student: "الطالب",
   guardian: "ولي الأمر",
   relationship: "صلة القرابة",
@@ -132,6 +134,15 @@ const META_KEYS = new Set([
   "version",
   "requester_role",
 ]);
+
+export const ERROR_CODE_MESSAGES = {
+  ENROLLMENT_DELETE_BLOCKED:
+    "لا يمكن حذف هذا التسجيل الدراسي لوجود سجلات وبيانات أكاديمية مرتبطة به (مثل سجلات الحضور أو العلامات أو تاريخ النقل).",
+  ACCOUNT_ROLE_OR_SCOPE_UPDATE_FORBIDDEN:
+    "لا يمكن تعديل الدور الوظيفي أو نطاق الإشراف من قبل الموجّه التربوي.",
+  STUDENT_DELETE_BLOCKED:
+    "لا يمكن حذف هذا الطالب لوجود تسجيلات دراسية أو ارتباطات أولياء أمور تابعة له.",
+};
 
 /**
  * Extracts a human-readable string or list of strings from any value (string, array, object)
@@ -245,6 +256,18 @@ export function parseApiError(error, fallbackMessage = "") {
           return `${topMessage}\n• ${messages.join("\n• ")}`;
         }
         return messages.join(" | ");
+      }
+
+      // 1c-2. Check for known application error codes
+      const appCode = data.code || data.error_code;
+      if (appCode && ERROR_CODE_MESSAGES[appCode]) {
+        const explicitMsg =
+          (typeof data.detail === "string" && data.detail.trim()) ||
+          (typeof data.message === "string" && data.message.trim());
+        if (explicitMsg && /[\u0600-\u06FF]/.test(explicitMsg)) {
+          return explicitMsg;
+        }
+        return ERROR_CODE_MESSAGES[appCode];
       }
 
       // 1d. Server 'detail' field

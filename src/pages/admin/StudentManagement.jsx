@@ -6,6 +6,7 @@ import {
   isTeacher,
   canManageStudents,
   canViewStudentProfile,
+  canAccessStudentImport,
   getHomeRouteForRole,
 } from "../../utils/permissionUtils";
 import {
@@ -24,6 +25,7 @@ import { StudentRegistrationModal } from "../../components/students/StudentRegis
 import { StudentHealthProfileModal } from "../../components/students/StudentHealthProfileModal";
 import { EnrollmentFormModal } from "../../components/students/EnrollmentFormModal";
 import { TransferModal } from "../../components/students/TransferModal";
+import { CorrectPlacementModal } from "../../components/students/CorrectPlacementModal";
 import { GuardianLinkFormModal } from "../../components/students/GuardianLinkFormModal";
 import { toast } from "sonner";
 import {
@@ -45,13 +47,17 @@ import {
   UserCheck,
   HeartPulse,
   FileText,
+  FileSpreadsheet,
+  Download,
 } from "lucide-react";
+import { exportStudentsToExcel } from "../../utils/studentExportUtils";
 
 export function StudentManagement() {
   const { user, requesterRole, permissions, hasPermission } = useAuthStore();
   const navigate = useNavigate();
   const basePath = getHomeRouteForRole(user);
   const canViewProfile = canViewStudentProfile(user, requesterRole, permissions);
+  const canImportStudents = canAccessStudentImport(user, requesterRole);
 
   // Student permissions
   const canAddStudent = hasPermission("students.add_student");
@@ -96,6 +102,8 @@ export function StudentManagement() {
   const [studentTotal, setStudentTotal] = useState(0);
   const [studentHasNext, setStudentHasNext] = useState(false);
   const [studentHasPrev, setStudentHasPrev] = useState(false);
+  const [isExportingStudents, setIsExportingStudents] = useState(false);
+  const [exportProgress, setExportProgress] = useState(null);
 
   // Registration & Health Profile Modals State
   const [isRegistrationModalOpen, setIsRegistrationModalOpen] = useState(false);
@@ -122,6 +130,8 @@ export function StudentManagement() {
   const [editingEnrollment, setEditingEnrollment] = useState(null);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [transferringEnrollment, setTransferringEnrollment] = useState(null);
+  const [isCorrectPlacementModalOpen, setIsCorrectPlacementModalOpen] = useState(false);
+  const [correctingEnrollment, setCorrectingEnrollment] = useState(null);
 
   // =========================================================
   // 3. GUARDIAN LINKS STATE
@@ -224,6 +234,58 @@ export function StudentManagement() {
     },
     [studentPage, studentSearch, studentGenderFilter, studentActiveFilter]
   );
+
+  const handleExportStudents = async () => {
+    try {
+      setIsExportingStudents(true);
+      setExportProgress(null);
+
+      const params = { page: 1, page_size: 1500 };
+      if (studentSearch.trim()) params.search = studentSearch.trim();
+      if (studentGenderFilter) params.gender = studentGenderFilter;
+      if (studentActiveFilter) params.is_active = studentActiveFilter;
+
+      let exportList = [];
+      try {
+        const res = await api.students.getStudents(params);
+        exportList = extractPaginatedList(res).results;
+      } catch (_) {
+        exportList = students;
+      }
+
+      if (!exportList || exportList.length === 0) {
+        toast.info("لا توجد بيانات طلاب لتصديرها.");
+        return;
+      }
+
+      const toastId = toast.loading(
+        `جاري تجهيز وتجميع البيانات الشاملة لـ ${exportList.length} طالب...`
+      );
+
+      await exportStudentsToExcel(exportList, {
+        fileName: `بيانات_الطلاب_الشاملة_${new Date().toISOString().split("T")[0]}.xlsx`,
+        autoHydrate: true,
+        concurrency: 6,
+        onProgress: (current, total) => {
+          setExportProgress({ current, total });
+          toast.loading(
+            `جاري جلب الملفات والبيانات الشاملة (${current}/${total})...`,
+            { id: toastId }
+          );
+        },
+      });
+
+      toast.success(
+        `تم تصدير ملف Excel بنجاح لـ ${exportList.length} طالب مع كافة البيانات الشاملة!`,
+        { id: toastId }
+      );
+    } catch (err) {
+      toast.error(parseApiError(err, "حدث خطأ أثناء تصدير ملف Excel."));
+    } finally {
+      setIsExportingStudents(false);
+      setExportProgress(null);
+    }
+  };
 
   useEffect(() => {
     if (activeTab === "students") {
@@ -412,11 +474,17 @@ export function StudentManagement() {
     fetchEnrollments(enrollmentPage);
   };
 
+  const handleCorrectPlacementSubmit = async (enrollmentId, payload) => {
+    const res = await api.students.correctPlacement(enrollmentId, payload);
+    toast.success(getApiSuccessMessage(res, "تم تصحيح شعبة الطالب بنجاح."));
+    fetchEnrollments(enrollmentPage);
+  };
+
   const handleDeleteEnrollment = (enrollment) => {
     setConfirmModalConfig({
       isOpen: true,
       title: "تأكيد حذف التسجيل الدراسي",
-      message: `هل أنت متأكد من حذف تسجيل الطالب (${enrollment.student_display}) في شعبة (${enrollment.section_display})؟`,
+      message: `هل أنت متأكد من حذف تسجيل الطالب (${enrollment.student_display || enrollment.student?.full_name || enrollment.student}) في شعبة (${enrollment.section_display || enrollment.section?.name || enrollment.section})؟`,
       confirmText: "حذف التسجيل",
       variant: "danger",
       isLoading: false,
@@ -428,8 +496,15 @@ export function StudentManagement() {
           setConfirmModalConfig((prev) => ({ ...prev, isOpen: false, isLoading: false }));
           fetchEnrollments(enrollmentPage);
         } catch (err) {
-          setConfirmModalConfig((prev) => ({ ...prev, isLoading: false }));
-          toast.error(parseApiError(err, "تعذر حذف التسجيل الدراسي."));
+          setConfirmModalConfig((prev) => ({ ...prev, isOpen: false, isLoading: false }));
+          const errorCode = getApiErrorCode(err);
+          if (errorCode === "ENROLLMENT_DELETE_BLOCKED") {
+            toast.error(
+              "لا يمكن حذف هذا التسجيل الدراسي لوجود سجلات أكاديمية مرتبطة به (مثل سجلات الحضور أو العلامات أو تاريخ النقل)."
+            );
+          } else {
+            toast.error(parseApiError(err, "تعذر حذف التسجيل الدراسي."));
+          }
         }
       },
     });
@@ -509,6 +584,44 @@ export function StudentManagement() {
               }`}
             />
           </Button>
+
+          {canImportStudents && activeTab === "students" && (
+            <Button
+              variant="outline"
+              onClick={() => navigate(`${basePath}/students/import`)}
+              className="gap-2 border-teal-600/30 text-teal-800 hover:bg-teal-50"
+              title="استيراد وتحديث بيانات الطلاب عبر ملف Excel"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-teal-600" />
+              <span>استيراد من Excel</span>
+            </Button>
+          )}
+
+          {activeTab === "students" && (
+            <Button
+              variant="outline"
+              onClick={handleExportStudents}
+              disabled={isExportingStudents}
+              className="gap-2 border-slate-300 text-slate-700 hover:bg-slate-50"
+              title="تصدير قائمة الطلاب إلى ملف Excel مطابق لقالب النظام"
+            >
+              {isExportingStudents ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin text-teal-600" />
+                  <span>
+                    {exportProgress
+                      ? `جاري التجميع (${exportProgress.current}/${exportProgress.total})`
+                      : "جاري تجهيز البيانات..."}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4 text-teal-600" />
+                  <span>تصدير إلى Excel</span>
+                </>
+              )}
+            </Button>
+          )}
 
           {canAddStudent && activeTab === "students" && (
             <Button
@@ -912,6 +1025,21 @@ export function StudentManagement() {
                               </button>
                             )}
 
+                            {/* Correct Placement Action */}
+                            {(canChangeEnrollment || canTransferStudent) && (
+                              <button
+                                onClick={() => {
+                                  setCorrectingEnrollment(enr);
+                                  setIsCorrectPlacementModalOpen(true);
+                                }}
+                                className="px-2 py-1 text-[11px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg flex items-center gap-1 transition-colors"
+                                title="تصحيح الشعبة الدراسية (الخطأ الإدخالي المبدئي)"
+                              >
+                                <Layers className="w-3.5 h-3.5" />
+                                <span>تصحيح الشعبة</span>
+                              </button>
+                            )}
+
                             {/* Edit Enrollment */}
                             {canChangeEnrollment && (
                               <button
@@ -1127,6 +1255,18 @@ export function StudentManagement() {
         }}
         onTransfer={handleTransferSubmit}
         enrollment={transferringEnrollment}
+        sections={sections}
+      />
+
+      {/* 3b. Student Placement Correction Modal */}
+      <CorrectPlacementModal
+        isOpen={isCorrectPlacementModalOpen}
+        onClose={() => {
+          setIsCorrectPlacementModalOpen(false);
+          setCorrectingEnrollment(null);
+        }}
+        onCorrectPlacement={handleCorrectPlacementSubmit}
+        enrollment={correctingEnrollment}
         sections={sections}
       />
 

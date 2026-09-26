@@ -1,13 +1,17 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../../api";
 import { useAuthStore } from "../../store/useAuthStore";
+import { getHomeRouteForRole, canViewStudentProfile } from "../../utils/permissionUtils";
 import { Modal } from "../../components/ui/Modal";
+import { ConfirmModal } from "../../components/ui/ConfirmModal";
 import { Button } from "../../components/ui/Button";
 import { Alert } from "../../components/ui/Alert";
 import { Pagination } from "../../components/ui/Pagination";
 import { toast } from "sonner";
 import { parseApiError, extractPaginatedList } from "../../utils/errorUtils";
 import { SearchableSelect } from "../../components/ui/SearchableSelect";
+import { StudentPointModal } from "../../components/students/StudentPointModal";
 import {
   Award,
   Plus,
@@ -34,10 +38,46 @@ import {
 } from "lucide-react";
 
 export function BehaviorManagement() {
-  const { hasPermission } = useAuthStore();
+  const { user, requesterRole, permissions, hasPermission } = useAuthStore();
+  const basePath = getHomeRouteForRole(user);
+  const canViewProfile = canViewStudentProfile(user, requesterRole, permissions);
+
   const canAddNote = hasPermission("behavior.add_behaviornote");
   const canChangeNote = hasPermission("behavior.change_behaviornote");
   const canDeleteNote = hasPermission("behavior.delete_behaviornote");
+
+  // Student Points permissions
+  const canViewPoints = hasPermission("behavior.view_studentpointentry");
+  const canAddPoint = hasPermission("behavior.add_studentpointentry");
+  const canChangePoint = hasPermission("behavior.change_studentpointentry");
+  const canDeletePoint = hasPermission("behavior.delete_studentpointentry");
+
+  // Main Tab Navigation: 'notes' | 'points'
+  const [activeMainTab, setActiveMainTab] = useState("notes");
+
+  // Points State
+  const [pointsList, setPointsList] = useState([]);
+  const [pointsLoading, setPointsLoading] = useState(false);
+  const [pointsError, setPointsError] = useState(null);
+  const [pointsPage, setPointsPage] = useState(1);
+  const [pointsTotal, setPointsTotal] = useState(0);
+  const [pointsHasNext, setPointsHasNext] = useState(false);
+  const [pointsHasPrev, setPointsHasPrev] = useState(false);
+
+  // Points Filters & Search
+  const [pointsSearchInput, setPointsSearchInput] = useState("");
+  const [debouncedPointsSearch, setDebouncedPointsSearch] = useState("");
+  const [pointsEnrollmentFilter, setPointsEnrollmentFilter] = useState("");
+  const [pointsDateFromFilter, setPointsDateFromFilter] = useState("");
+  const [pointsDateToFilter, setPointsDateToFilter] = useState("");
+  const [pointsOrderingFilter, setPointsOrderingFilter] = useState("-occurred_on");
+
+  // Points Modals
+  const [isAddPointModalOpen, setIsAddPointModalOpen] = useState(false);
+  const [isEditPointModalOpen, setIsEditPointModalOpen] = useState(false);
+  const [isDeletePointModalOpen, setIsDeletePointModalOpen] = useState(false);
+  const [selectedPoint, setSelectedPoint] = useState(null);
+  const [isDeletingPoint, setIsDeletingPoint] = useState(false);
 
   // Raw & processed data states
   const [rawNotes, setRawNotes] = useState([]);
@@ -101,6 +141,77 @@ export function BehaviorManagement() {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  // Debounce points search input by 300ms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedPointsSearch(pointsSearchInput);
+      setPointsPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [pointsSearchInput]);
+
+  // Fetch Student Points
+  const fetchPoints = useCallback(
+    async (page = 1) => {
+      if (!canViewPoints) return;
+      setPointsLoading(true);
+      setPointsError(null);
+      try {
+        const params = {
+          page,
+          page_size: 20,
+          ordering: pointsOrderingFilter,
+        };
+        if (debouncedPointsSearch) params.search = debouncedPointsSearch;
+        if (pointsEnrollmentFilter) params.enrollment = pointsEnrollmentFilter;
+        if (pointsDateFromFilter) params.date_from = pointsDateFromFilter;
+        if (pointsDateToFilter) params.date_to = pointsDateToFilter;
+
+        const res = await api.behavior.getPoints(params);
+        const paginated = extractPaginatedList(res);
+        setPointsList(paginated);
+        setPointsTotal(paginated.count || 0);
+        setPointsHasNext(Boolean(paginated.next));
+        setPointsHasPrev(Boolean(paginated.previous));
+        setPointsPage(page);
+      } catch (err) {
+        setPointsError(parseApiError(err) || "تعذر تحميل سجلات نقاط الطلاب");
+      } finally {
+        setPointsLoading(false);
+      }
+    },
+    [
+      canViewPoints,
+      debouncedPointsSearch,
+      pointsEnrollmentFilter,
+      pointsDateFromFilter,
+      pointsDateToFilter,
+      pointsOrderingFilter,
+    ]
+  );
+
+  useEffect(() => {
+    if (activeMainTab === "points") {
+      fetchPoints(pointsPage);
+    }
+  }, [activeMainTab, pointsPage, fetchPoints]);
+
+  const handleDeletePointSubmit = async () => {
+    if (!selectedPoint?.id) return;
+    setIsDeletingPoint(true);
+    try {
+      await api.behavior.deletePoint(selectedPoint.id);
+      toast.success("تم حذف سجل نقاط الطالب بنجاح.");
+      setIsDeletePointModalOpen(false);
+      setSelectedPoint(null);
+      fetchPoints(pointsPage);
+    } catch (err) {
+      toast.error(parseApiError(err) || "فشل حذف سجل النقاط");
+    } finally {
+      setIsDeletingPoint(false);
+    }
+  };
 
   // Fetch Dropdown Metadata (Enrollments & Students)
   const fetchMetadata = useCallback(async () => {
@@ -586,16 +697,25 @@ export function BehaviorManagement() {
               <Award className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-900">
-              الملاحظات السلوكية والتربوية (Behavior Notes)
+              {activeMainTab === "points"
+                ? "نقاط الطلاب التحفيزية (Student Points)"
+                : "الملاحظات السلوكية والتربوية (Behavior Notes)"}
             </h2>
-            {totalCount > 0 && (
+            {activeMainTab === "notes" && totalCount > 0 && (
               <span className="bg-amber-50 text-amber-800 text-xs px-2.5 py-0.5 rounded-full border border-amber-200 font-bold">
                 {totalCount} ملاحظة
               </span>
             )}
+            {activeMainTab === "points" && pointsTotal > 0 && (
+              <span className="bg-emerald-50 text-emerald-800 text-xs px-2.5 py-0.5 rounded-full border border-emerald-200 font-bold">
+                {pointsTotal} سجل نقاط
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-500 pr-1">
-            توثيق ومتابعة السلوك الإيجابي والتوجيهي للطلاب بدقة لتعزيز الانضباط والتفوق
+            {activeMainTab === "points"
+              ? "منح وتوثيق النقاط الإيجابية للطلاب لتحفيز التميز الدراسي والسلوكي"
+              : "توثيق ومتابعة السلوك الإيجابي والتوجيهي للطلاب بدقة لتعزيز الانضباط والتفوق"}
           </p>
         </div>
 
@@ -603,15 +723,25 @@ export function BehaviorManagement() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => fetchNotes(currentPage)}
-            disabled={isLoading}
+            onClick={() =>
+              activeMainTab === "points"
+                ? fetchPoints(pointsPage)
+                : fetchNotes(currentPage)
+            }
+            disabled={activeMainTab === "points" ? pointsLoading : isLoading}
             title="تحديث القائمة"
             className="h-9 px-3"
           >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`w-4 h-4 ${
+                (activeMainTab === "points" ? pointsLoading : isLoading)
+                  ? "animate-spin"
+                  : ""
+              }`}
+            />
           </Button>
 
-          {canAddNote && (
+          {activeMainTab === "notes" && canAddNote && (
             <Button
               onClick={handleOpenCreate}
               className="gap-1.5 text-xs font-bold h-9 px-3.5 shadow-sm bg-teal-600 hover:bg-teal-700 text-white"
@@ -620,13 +750,59 @@ export function BehaviorManagement() {
               <span>إضافة ملاحظة سلوكية</span>
             </Button>
           )}
+
+          {activeMainTab === "points" && canAddPoint && (
+            <Button
+              onClick={() => setIsAddPointModalOpen(true)}
+              className="gap-1.5 text-xs font-bold h-9 px-3.5 shadow-sm bg-teal-600 hover:bg-teal-700 text-white"
+            >
+              <Plus className="w-4 h-4" />
+              <span>إضافة نقاط للطالب</span>
+            </Button>
+          )}
         </div>
       </div>
 
-      {error && <Alert type="error">{error}</Alert>}
+      {/* Module Navigation Tabs (Notes vs Points) */}
+      {canViewPoints && (
+        <div className="flex border-b border-slate-200 space-x-1 space-x-reverse overflow-x-auto bg-white px-3 pt-2 rounded-2xl border shadow-2xs">
+          <button
+            type="button"
+            onClick={() => setActiveMainTab("notes")}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all whitespace-nowrap ${
+              activeMainTab === "notes"
+                ? "border-teal-600 text-teal-700 bg-teal-50/50 rounded-t-xl"
+                : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+            }`}
+          >
+            <ShieldAlert className="w-4 h-4" />
+            <span>الملاحظات السلوكية ({totalCount})</span>
+          </button>
 
-      {/* 2. Quick Stat Counters Cards (Interactive Click-to-Filter) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+          <button
+            type="button"
+            onClick={() => setActiveMainTab("points")}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all whitespace-nowrap ${
+              activeMainTab === "points"
+                ? "border-amber-600 text-amber-700 bg-amber-50/50 rounded-t-xl"
+                : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+            }`}
+          >
+            <Award className="w-4 h-4 text-amber-500" />
+            <span>نقاط الطلاب ({pointsTotal})</span>
+          </button>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* NOTES TAB CONTENT                                        */}
+      {/* ======================================================== */}
+      {activeMainTab === "notes" && (
+        <>
+          {error && <Alert type="error">{error}</Alert>}
+
+          {/* 2. Quick Stat Counters Cards (Interactive Click-to-Filter) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         {/* Total Notes */}
         <div
           onClick={() => {
@@ -1245,6 +1421,279 @@ export function BehaviorManagement() {
           hasPrevious={hasPrevious}
         />
       </div>
+    </>
+  )}
+
+  {/* ======================================================== */}
+  {/* POINTS TAB CONTENT                                       */}
+  {/* ======================================================== */}
+  {activeMainTab === "points" && (
+    <div className="space-y-4">
+      {/* Filters & Search Toolbar */}
+      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Search text */}
+          <div className="relative">
+            <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
+            <input
+              type="text"
+              placeholder="بحث باسم الطالب أو سبب النقاط..."
+              value={pointsSearchInput}
+              onChange={(e) => setPointsSearchInput(e.target.value)}
+              className="w-full pl-3 pr-9 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+            />
+          </div>
+
+          {/* Enrollment / Student select */}
+          <div>
+            <SearchableSelect
+              options={[{ value: "", label: "جميع الطلاب المسجلين" }, ...enrollmentOptions]}
+              value={pointsEnrollmentFilter}
+              onChange={(val) => {
+                setPointsEnrollmentFilter(val);
+                setPointsPage(1);
+              }}
+              placeholder="تصفية حسب الطالب..."
+            />
+          </div>
+
+          {/* Date From */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500 shrink-0 font-medium">من تاريخ:</span>
+            <input
+              type="date"
+              value={pointsDateFromFilter}
+              onChange={(e) => {
+                setPointsDateFromFilter(e.target.value);
+                setPointsPage(1);
+              }}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+            />
+          </div>
+
+          {/* Date To */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500 shrink-0 font-medium">إلى تاريخ:</span>
+            <input
+              type="date"
+              value={pointsDateToFilter}
+              onChange={(e) => {
+                setPointsDateToFilter(e.target.value);
+                setPointsPage(1);
+              }}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+            />
+          </div>
+        </div>
+
+        {/* Sub-toolbar: Ordering & Reset */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500 font-medium">الترتيب:</span>
+            <select
+              value={pointsOrderingFilter}
+              onChange={(e) => {
+                setPointsOrderingFilter(e.target.value);
+                setPointsPage(1);
+              }}
+              className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:bg-white focus:outline-none"
+            >
+              <option value="-occurred_on">تاريخ المنح (الأحدث أولاً)</option>
+              <option value="occurred_on">تاريخ المنح (الأقدم أولاً)</option>
+              <option value="-points">عدد النقاط (الأعلى أولاً)</option>
+              <option value="points">عدد النقاط (الأقل أولاً)</option>
+              <option value="-created_at">تاريخ التسجيل (الأحدث أولاً)</option>
+              <option value="created_at">تاريخ التسجيل (الأقدم أولاً)</option>
+            </select>
+          </div>
+
+          {(pointsSearchInput || pointsEnrollmentFilter || pointsDateFromFilter || pointsDateToFilter || pointsOrderingFilter !== "-occurred_on") && (
+            <button
+              type="button"
+              onClick={() => {
+                setPointsSearchInput("");
+                setDebouncedPointsSearch("");
+                setPointsEnrollmentFilter("");
+                setPointsDateFromFilter("");
+                setPointsDateToFilter("");
+                setPointsOrderingFilter("-occurred_on");
+                setPointsPage(1);
+              }}
+              className="text-xs text-rose-600 hover:text-rose-800 font-bold"
+            >
+              إعادة ضبط الفلاتر
+            </button>
+          )}
+        </div>
+      </div>
+
+      {pointsError && (
+        <Alert type="error" title="خطأ في تحميل النقاط">
+          {pointsError}
+        </Alert>
+      )}
+
+      {/* Table of Points */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-right text-xs">
+            <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+              <tr>
+                <th className="py-3 px-4">الطالب والشعبة</th>
+                <th className="py-3 px-4 w-28 whitespace-nowrap">النقاط</th>
+                <th className="py-3 px-4">سبب منح النقاط</th>
+                <th className="py-3 px-4 w-28 whitespace-nowrap">تاريخ المنح</th>
+                <th className="py-3 px-4 w-36 whitespace-nowrap">أضيف بواسطة</th>
+                <th className="py-3 px-4 w-36 whitespace-nowrap">تاريخ التسجيل</th>
+                {(canChangePoint || canDeletePoint) && (
+                  <th className="py-3 px-4 w-24 text-center whitespace-nowrap">الإجراءات</th>
+                )}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {pointsLoading ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-slate-500">
+                    <div className="flex items-center justify-center gap-2">
+                      <RefreshCw className="w-5 h-5 animate-spin text-teal-600" />
+                      <span>جاري تحميل سجلات نقاط الطلاب...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : pointsList.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                    <Award className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                    <p className="font-bold text-slate-600">لا توجد سجلات نقاط مطابقة للبحث أو الفلاتر</p>
+                    {canAddPoint && (
+                      <div className="pt-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => setIsAddPointModalOpen(true)}
+                          className="gap-1.5 text-xs font-bold text-teal-800 border-teal-300"
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span>إضافة نقاط جديدة للطالب</span>
+                        </Button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ) : (
+                pointsList.map((pt) => {
+                  const studentName =
+                    pt.student?.full_name ||
+                    pt.student_name ||
+                    "طالب";
+                  const studentId =
+                    typeof pt.student === "object" ? pt.student?.id : pt.student;
+
+                  return (
+                    <tr key={pt.id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center font-bold text-xs shrink-0">
+                            {studentName[0] || "ط"}
+                          </div>
+                          <div>
+                            {studentId && canViewProfile ? (
+                              <Link
+                                to={`${basePath}/students/${studentId}/profile`}
+                                className="font-bold text-slate-900 hover:text-teal-700 transition-colors"
+                              >
+                                {studentName}
+                              </Link>
+                            ) : (
+                              <span className="font-bold text-slate-900">{studentName}</span>
+                            )}
+                            {pt.section_name && (
+                              <span className="text-[11px] text-slate-400 block">
+                                {pt.grade_level_name ? `${pt.grade_level_name} - ` : ""}{pt.section_name}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1 font-mono font-black text-xs text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                          +{pt.points} نقطة
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <p className="font-semibold text-slate-800 leading-relaxed">
+                          {pt.note}
+                        </p>
+                      </td>
+                      <td className="py-3 px-4 font-mono font-bold text-slate-700 whitespace-nowrap">
+                        {pt.occurred_on}
+                      </td>
+                      <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                        <span className="bg-slate-100 px-2 py-0.5 rounded text-[11px] font-mono text-slate-700">
+                          {pt.created_by_username || pt.created_by_name || pt.created_by || "-"}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-slate-400 font-mono text-[11px] whitespace-nowrap">
+                        {pt.created_at ? new Date(pt.created_at).toLocaleDateString("ar-EG") : "-"}
+                      </td>
+                      {(canChangePoint || canDeletePoint) && (
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1">
+                            {canChangePoint && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedPoint(pt);
+                                  setIsEditPointModalOpen(true);
+                                }}
+                                className="p-1.5 text-slate-500 hover:text-teal-700 hover:bg-slate-100 rounded-lg transition-colors"
+                                title="تعديل النقاط"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {canDeletePoint && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedPoint(pt);
+                                  setIsDeletePointModalOpen(true);
+                                }}
+                                className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                title="حذف النقاط"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {pointsTotal > 20 && (
+          <div className="p-4 border-t border-slate-100">
+            <Pagination
+              currentPage={pointsPage}
+              totalCount={pointsTotal}
+              pageSize={20}
+              onPageChange={(p) => {
+                setPointsPage(p);
+                fetchPoints(p);
+              }}
+              hasNext={pointsHasNext}
+              hasPrevious={pointsHasPrev}
+              itemName="سجل نقاط"
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  )}
 
       {/* 5. Modal: Create Behavior Note (POST /api/v1/behavior/notes/) */}
       <Modal
@@ -1626,6 +2075,43 @@ export function BehaviorManagement() {
           </div>
         </div>
       </Modal>
+
+      {/* Points Modals */}
+      <StudentPointModal
+        isOpen={isAddPointModalOpen}
+        onClose={() => setIsAddPointModalOpen(false)}
+        onSuccess={() => fetchPoints(1)}
+        enrollmentOptions={enrollmentOptions}
+      />
+
+      <StudentPointModal
+        isOpen={isEditPointModalOpen}
+        onClose={() => {
+          setIsEditPointModalOpen(false);
+          setSelectedPoint(null);
+        }}
+        onSuccess={() => fetchPoints(pointsPage)}
+        pointRecord={selectedPoint}
+        enrollmentOptions={enrollmentOptions}
+      />
+
+      <ConfirmModal
+        isOpen={isDeletePointModalOpen}
+        onClose={() => {
+          setIsDeletePointModalOpen(false);
+          setSelectedPoint(null);
+        }}
+        onConfirm={handleDeletePointSubmit}
+        title="حذف سجل نقاط الطالب"
+        message={
+          selectedPoint
+            ? `هل أنت متأكد من حذف سجل النقاط (${selectedPoint.points} نقطة - "${selectedPoint.note}")؟ سيتم تحديث مجموع نقاط الطالب تلقائيًا.`
+            : "هل أنت متأكد من حذف هذا السجل؟"
+        }
+        confirmText="تأكيد الحذف"
+        variant="danger"
+        isLoading={isDeletingPoint}
+      />
     </div>
   );
 }
