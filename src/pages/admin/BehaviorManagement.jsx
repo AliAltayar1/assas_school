@@ -14,6 +14,7 @@ import { SearchableSelect } from "../../components/ui/SearchableSelect";
 import { StudentPointModal } from "../../components/students/StudentPointModal";
 import {
   Award,
+  ShieldAlert,
   Plus,
   RefreshCw,
   Filter,

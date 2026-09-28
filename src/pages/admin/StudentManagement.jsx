@@ -147,10 +147,11 @@ export function StudentManagement() {
 
   const [isGuardianModalOpen, setIsGuardianModalOpen] = useState(false);
 
-  // Dropdowns data (Years, Sections, Users/Guardians)
+  // Dropdowns data (Years, Sections, Users/Guardians, Grade Levels)
   const [years, setYears] = useState([]);
   const [sections, setSections] = useState([]);
   const [guardianUsers, setGuardianUsers] = useState([]);
+  const [gradeLevels, setGradeLevels] = useState([]);
 
   // =========================================================
   // 4. CONFIRMATION MODALS STATE
@@ -178,15 +179,17 @@ export function StudentManagement() {
   // =========================================================
   const fetchMetadata = useCallback(async () => {
     try {
-      const [yearsRes, sectionsRes, usersRes] = await Promise.all([
+      const [yearsRes, sectionsRes, usersRes, gradesRes] = await Promise.all([
         api.academics.getYears().catch(() => ({ results: [] })),
         api.academics.getSections().catch(() => ({ results: [] })),
         api.users.getUsers({ role: "guardian" }).catch(() => ({ results: [] })),
+        api.academics.getGradeLevels().catch(() => ({ results: [] })),
       ]);
 
       const yearsList = extractPaginatedList(yearsRes).results;
       const sectionsList = extractPaginatedList(sectionsRes).results;
       const usersList = extractPaginatedList(usersRes).results;
+      const gradesList = extractPaginatedList(gradesRes).results;
 
       // Filter strictly to guardian / parent role accounts only
       const onlyGuardians = usersList.filter(
@@ -199,6 +202,7 @@ export function StudentManagement() {
       setYears(yearsList);
       setSections(sectionsList);
       setGuardianUsers(onlyGuardians);
+      setGradeLevels(gradesList);
     } catch (_) {}
   }, []);
 
@@ -1244,6 +1248,7 @@ export function StudentManagement() {
         students={students}
         years={years}
         sections={sections}
+        gradeLevels={gradeLevels}
       />
 
       {/* 3. Student Transfer Modal */}
