@@ -50,6 +50,7 @@ export const FIELD_LABELS = {
   occurred_to: "إلى تاريخ",
   points: "عدد النقاط",
   note: "سبب منح النقاط",
+  reason: "سبب التصحيح",
   student: "الطالب",
   guardian: "ولي الأمر",
   relationship: "صلة القرابة",
@@ -142,6 +143,15 @@ export const ERROR_CODE_MESSAGES = {
     "لا يمكن تعديل الدور الوظيفي أو نطاق الإشراف من قبل الموجّه التربوي.",
   STUDENT_DELETE_BLOCKED:
     "لا يمكن حذف هذا الطالب لوجود تسجيلات دراسية أو ارتباطات أولياء أمور تابعة له.",
+  STUDENT_ALREADY_IN_SECTION: "الطالب مسجل بالفعل في الشعبة المحددة.",
+  SECTION_ACADEMIC_YEAR_MISMATCH: "يجب اختيار صف وشعبة من السنة الدراسية نفسها.",
+  PLACEMENT_CORRECTION_BLOCKED_BY_ATTENDANCE: "لا يمكن تصحيح صف الطالب لوجود سجلات حضور مرتبطة بتسجيله.",
+  PLACEMENT_CORRECTION_BLOCKED_BY_GRADES: "لا يمكن تصحيح صف الطالب لوجود علامات مرتبطة بتسجيله.",
+  PLACEMENT_CORRECTION_BLOCKED_BY_TRANSFER: "لا يمكن تصحيح التسجيل لوجود عملية نقل سابقة للطالب.",
+  ENROLLMENT_CORRECTION_HAS_PAYMENTS: "لا يمكن تغيير صف الطالب بعد تسجيل دفعات مالية.",
+  TARGET_GRADE_TUITION_PLAN_NOT_FOUND: "لا يمكن تغيير صف الطالب لعدم وجود خطة أقساط للصف المستهدف.",
+  PLACEMENT_CORRECTION_REASON_REQUIRED: "سبب التصحيح إلزامي ولا يقبل نصاً فارغاً.",
+  HOMEWORK_ASSIGNMENT_ENDED: "لا يمكن إنشاء أو تعديل أو حذف واجب دراسي لتكليف تدريسي منتهٍ.",
 };
 
 /**
@@ -273,26 +283,38 @@ export function parseApiError(error, fallbackMessage = "") {
       // 1d. Server 'detail' field
       if (typeof data.detail === "string" && data.detail.trim()) {
         const detailStr = data.detail.trim();
-        if (
-          response?.status === 404 &&
-          (detailStr.toLowerCase() === "not found." ||
-            detailStr.toLowerCase() === "not found")
-        ) {
-          return "السجل المطلوب غير موجود في النظام أو يقع خارج نطاق الصلاحيات المتاحة لك.";
+        if (response?.status === 404) {
+          if (!/[\u0600-\u06FF]/.test(detailStr) || detailStr.toLowerCase().includes("not found")) {
+            return "العنصر غير موجود أو لم يعد متاحًا.";
+          }
         }
-        if (
-          response?.status === 403 &&
-          (detailStr.toLowerCase().includes("permission") ||
-            detailStr.toLowerCase().includes("not have permission"))
-        ) {
-          return "عفواً، ليس لديك الصلاحية الكافية لتنفيذ هذا الإجراء.";
+        if (response?.status === 403) {
+          if (
+            !/[\u0600-\u06FF]/.test(detailStr) ||
+            detailStr.toLowerCase().includes("permission") ||
+            detailStr.toLowerCase().includes("forbidden")
+          ) {
+            return "ليس لديك صلاحية لتنفيذ هذه العملية.";
+          }
         }
         return detailStr;
       }
 
       // 1e. Server 'message' field
       if (typeof data.message === "string" && data.message.trim()) {
-        return data.message.trim();
+        const msgStr = data.message.trim();
+        if (response?.status === 404 && (!/[\u0600-\u06FF]/.test(msgStr) || msgStr.toLowerCase().includes("not found"))) {
+          return "العنصر غير موجود أو لم يعد متاحًا.";
+        }
+        if (
+          response?.status === 403 &&
+          (!/[\u0600-\u06FF]/.test(msgStr) ||
+            msgStr.toLowerCase().includes("permission") ||
+            msgStr.toLowerCase().includes("forbidden"))
+        ) {
+          return "ليس لديك صلاحية لتنفيذ هذه العملية.";
+        }
+        return msgStr;
       }
 
       // 1f. Server 'error' field
@@ -309,9 +331,9 @@ export function parseApiError(error, fallbackMessage = "") {
   if (response?.status === 401)
     return "انتهت صلاحية الجلسة أو لم يتم تزويد بيانات الدخول. يرجى تسجيل الدخول مجدداً.";
   if (response?.status === 403)
-    return "عفواً، ليس لديك الصلاحية الكافية لتنفيذ هذا الإجراء.";
+    return "ليس لديك صلاحية لتنفيذ هذه العملية.";
   if (response?.status === 404)
-    return "السجل المطلوب غير موجود في النظام أو يقع خارج نطاق الصلاحيات المتاحة لك.";
+    return "العنصر غير موجود أو لم يعد متاحًا.";
   if (response?.status === 429)
     return "تم تجاوز الحد المسموح من الطلبات. يرجى الانتظار قليلاً ثم المحاولة.";
   if (response?.status >= 500)

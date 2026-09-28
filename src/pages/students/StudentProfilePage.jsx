@@ -13,6 +13,8 @@ import { Alert } from "../../components/ui/Alert";
 import { Pagination } from "../../components/ui/Pagination";
 import { ConfirmModal } from "../../components/ui/ConfirmModal";
 import { StudentPointModal } from "../../components/students/StudentPointModal";
+import { TransferModal } from "../../components/students/TransferModal";
+import { CorrectPlacementModal } from "../../components/students/CorrectPlacementModal";
 import { toast } from "sonner";
 import {
   User,
@@ -25,6 +27,8 @@ import {
   Calendar,
   School,
   ArrowRight,
+  ArrowLeftRight,
+  Layers,
   RefreshCw,
   Phone,
   Mail,
@@ -111,6 +115,10 @@ export function StudentProfilePage() {
   const canChangePoint = hasPermission("behavior.change_studentpointentry");
   const canDeletePoint = hasPermission("behavior.delete_studentpointentry");
 
+  // Enrollment operations permissions
+  const canTransferStudent = hasPermission("students.transfer_student");
+  const canCorrectPlacement = hasPermission("students.correct_enrollment_placement");
+
   // =========================================================================
   // State
   // =========================================================================
@@ -151,6 +159,10 @@ export function StudentProfilePage() {
   const [isDeletePointModalOpen, setIsDeletePointModalOpen] = useState(false);
   const [selectedPoint, setSelectedPoint] = useState(null);
   const [isDeletingPoint, setIsDeletingPoint] = useState(false);
+
+  // Enrollment Modals State
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [isCorrectPlacementModalOpen, setIsCorrectPlacementModalOpen] = useState(false);
 
   // =========================================================================
   // 1. Fetch Academic Years
@@ -351,6 +363,21 @@ export function StudentProfilePage() {
     } finally {
       setIsDeletingPoint(false);
     }
+  };
+
+  // Handlers for Enrollment Operations (Transfer & Correct Placement)
+  const handleTransferSubmit = async (enrollmentId, targetSectionId) => {
+    const res = await api.students.transferEnrollment(enrollmentId, targetSectionId);
+    toast.success(res?.message || "تم نقل الطالب إلى الشعبة الجديدة بنجاح.");
+    await fetchProfile();
+    return res;
+  };
+
+  const handleCorrectPlacementSubmit = async (enrollmentId, payload) => {
+    const res = await api.students.correctPlacement(enrollmentId, payload);
+    toast.success(res?.message || "تم تصحيح شعبة تسجيل الطالب بنجاح.");
+    await fetchProfile();
+    return res;
   };
 
   // =========================================================================
@@ -623,6 +650,33 @@ export function StudentProfilePage() {
                 </div>
               </div>
             )}
+
+            {enrollment && (canTransferStudent || canCorrectPlacement) && (
+              <div className="border-t sm:border-t-0 sm:border-r border-slate-700 pt-2 sm:pt-0 sm:pr-4 flex flex-wrap items-center gap-2">
+                {canTransferStudent && (
+                  <button
+                    type="button"
+                    onClick={() => setIsTransferModalOpen(true)}
+                    className="px-2.5 py-1 text-xs font-bold text-teal-300 bg-teal-900/60 hover:bg-teal-800/80 border border-teal-500/40 rounded-lg flex items-center gap-1.5 transition-colors shadow-2xs"
+                    title="نقل إلى شعبة أخرى"
+                  >
+                    <ArrowLeftRight className="w-3.5 h-3.5" />
+                    <span>نقل إلى شعبة أخرى</span>
+                  </button>
+                )}
+                {canCorrectPlacement && (
+                  <button
+                    type="button"
+                    onClick={() => setIsCorrectPlacementModalOpen(true)}
+                    className="px-2.5 py-1 text-xs font-bold text-amber-300 bg-amber-900/60 hover:bg-amber-800/80 border border-amber-500/40 rounded-lg flex items-center gap-1.5 transition-colors shadow-2xs"
+                    title="تصحيح الصف والشعبة"
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>تصحيح الصف والشعبة</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -758,13 +812,9 @@ export function StudentProfilePage() {
 
         {/* 9. نقاط الطالب */}
         <div
-          onClick={() => canViewPoints && setActiveTab("points")}
-          className={`bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-1 transition-all ${
-            canViewPoints
-              ? "cursor-pointer hover:border-amber-300 hover:bg-amber-50/20"
-              : ""
-          }`}
-          title={canViewPoints ? "اضغط لعرض تفاصيل سجل نقاط الطالب" : ""}
+          onClick={() => setActiveTab("points")}
+          className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-1 transition-all cursor-pointer hover:border-amber-300 hover:bg-amber-50/20"
+          title="اضغط لعرض تفاصيل سجل نقاط الطالب"
         >
           <div className="flex items-center justify-between text-slate-500 text-[11px] font-bold">
             <span>نقاط الطالب</span>
@@ -777,11 +827,9 @@ export function StudentProfilePage() {
             <span className="text-amber-700/80 font-bold block truncate">
               {pointsSummary.entries_count ?? 0} سجلات
             </span>
-            {canViewPoints && (
-              <span className="text-teal-700 font-bold hover:underline">
-                التفاصيل
-              </span>
-            )}
+            <span className="text-teal-700 font-bold hover:underline">
+              التفاصيل
+            </span>
           </div>
         </div>
       </div>
@@ -892,23 +940,21 @@ export function StudentProfilePage() {
           </button>
 
           {/* Tab: Student Points */}
-          {canViewPoints && (
-            <button
-              type="button"
-              onClick={() => setActiveTab("points")}
-              className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-                activeTab === "points"
-                  ? "bg-white text-teal-800 shadow-xs border border-slate-200/80"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-              }`}
-            >
-              <Award className="w-4 h-4 text-amber-500" />
-              <span>نقاط الطالب</span>
-              <span className="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold">
-                {pointsSummary.total_points ?? 0}
-              </span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setActiveTab("points")}
+            className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+              activeTab === "points"
+                ? "bg-white text-teal-800 shadow-xs border border-slate-200/80"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+            }`}
+          >
+            <Award className="w-4 h-4 text-amber-500" />
+            <span>نقاط الطالب</span>
+            <span className="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold">
+              {pointsSummary.total_points ?? 0}
+            </span>
+          </button>
 
           {/* Tab 7: Finance */}
           <button
@@ -1277,16 +1323,49 @@ export function StudentProfilePage() {
           {activeTab === "attendance" && (
             <div className="space-y-6">
               {/* Enrollment Info Card */}
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2 mb-1">
-                  <School className="w-4 h-4 text-teal-600" />
-                  <span>
-                    بيانات التسجيل الدراسي في سنة ({academic_year?.name || "المحددة"})
-                  </span>
-                </h3>
-                <p className="text-xs text-slate-500">
-                  تفاصيل تسجيل وقيد الطالب والشعبة وطرق الحضور والانصراف
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2 mb-1">
+                    <School className="w-4 h-4 text-teal-600" />
+                    <span>
+                      بيانات التسجيل الدراسي في سنة ({academic_year?.name || "المحددة"})
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    تفاصيل تسجيل وقيد الطالب والشعبة وطرق الحضور والانصراف
+                  </p>
+                </div>
+
+                {enrollment && (canTransferStudent || canCorrectPlacement) && (
+                  <div className="flex items-center gap-2">
+                    {canTransferStudent && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsTransferModalOpen(true)}
+                        className="gap-1.5 text-xs font-bold text-teal-700 bg-teal-50 border-teal-200 hover:bg-teal-100"
+                        title="نقل الطالب إلى شعبة أخرى ضمن نفس الصف الدراسي"
+                      >
+                        <ArrowLeftRight className="w-3.5 h-3.5" />
+                        <span>نقل إلى شعبة أخرى</span>
+                      </Button>
+                    )}
+                    {canCorrectPlacement && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsCorrectPlacementModalOpen(true)}
+                        className="gap-1.5 text-xs font-bold text-amber-700 bg-amber-50 border-amber-200 hover:bg-amber-100"
+                        title="تصحيح الصف والشعبة للطالب في حال الخطأ في التسجيل"
+                      >
+                        <Layers className="w-3.5 h-3.5" />
+                        <span>تصحيح الصف والشعبة</span>
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
 
               {!enrollment ? (
@@ -2347,6 +2426,36 @@ export function StudentProfilePage() {
         variant="danger"
         isLoading={isDeletingPoint}
       />
+
+      {/* Student Transfer Modal */}
+      {enrollment && (
+        <TransferModal
+          isOpen={isTransferModalOpen}
+          onClose={() => setIsTransferModalOpen(false)}
+          onTransfer={handleTransferSubmit}
+          enrollment={{
+            ...enrollment,
+            student_display: student?.full_name || student?.first_name,
+            academic_year_display: academic_year?.name,
+          }}
+          onSuccess={() => fetchProfile()}
+        />
+      )}
+
+      {/* Student Placement Correction Modal */}
+      {enrollment && (
+        <CorrectPlacementModal
+          isOpen={isCorrectPlacementModalOpen}
+          onClose={() => setIsCorrectPlacementModalOpen(false)}
+          onCorrectPlacement={handleCorrectPlacementSubmit}
+          enrollment={{
+            ...enrollment,
+            student_display: student?.full_name || student?.first_name,
+            academic_year_display: academic_year?.name,
+          }}
+          onSuccess={() => fetchProfile()}
+        />
+      )}
     </div>
   );
 }

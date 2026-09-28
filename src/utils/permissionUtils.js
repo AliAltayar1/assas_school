@@ -60,7 +60,9 @@ export const STUDENT_PERMISSIONS = [
   "students.add_enrollment",
   "students.change_enrollment",
   "students.transfer_student",
+  "students.correct_enrollment_placement",
   "students.delete_enrollment",
+  "students.import_students",
 ];
 
 export const ATTENDANCE_PERMISSIONS = [
@@ -207,8 +209,7 @@ export function canManagePermissions(user, requesterRole, permissions) {
 
 /**
  * Security Rule for Student Comprehensive Profile:
- * Only Superuser OR (role in ['school_admin', 'secretariat', 'supervisor'] AND has 'students.view_student_profile')
- * Forbidden for: teacher, guardian, tech_support
+ * Comprehensive read access governed strictly by 'students.view_student_profile' or Superuser.
  */
 export function canViewStudentProfile(user, requesterRole, permissions) {
   const isSuperuser = Boolean(
@@ -217,26 +218,6 @@ export function canViewStudentProfile(user, requesterRole, permissions) {
     (typeof window !== "undefined" && useAuthStore.getState().requesterRole?.code === "superuser")
   );
   if (isSuperuser) return true;
-
-  const rawRole = (
-    user?.role ||
-    user?.role_code ||
-    requesterRole?.code ||
-    (typeof window !== "undefined" && (useAuthStore.getState().user?.role || useAuthStore.getState().requesterRole?.code)) ||
-    ""
-  ).toLowerCase().replace(/[\s-]+/g, "_");
-
-  const normalizedRole =
-    rawRole === "admin" || rawRole === "school_admin" || rawRole === "schooladmin"
-      ? "school_admin"
-      : rawRole === "secretary" || rawRole === "secretariat"
-      ? "secretariat"
-      : rawRole === "educational_supervisor" || rawRole === "supervisor"
-      ? "supervisor"
-      : rawRole;
-
-  const allowedRoles = ["school_admin", "secretariat", "supervisor"];
-  if (!allowedRoles.includes(normalizedRole)) return false;
 
   const userPerms =
     permissions ||
@@ -249,10 +230,9 @@ export function canViewStudentProfile(user, requesterRole, permissions) {
 
 /**
  * Security Rule for Student Excel Import:
- * Allowed for Superuser, School Admin, and Secretariat.
- * Forbidden for: Teacher, Educational Supervisor, Guardian, Accountant, etc.
+ * Governed strictly by 'students.import_students' or Superuser.
  */
-export function canAccessStudentImport(user, requesterRole) {
+export function canAccessStudentImport(user, requesterRole, permissions) {
   const isSuperuser = Boolean(
     user?.is_superuser ||
     requesterRole?.code === "superuser" ||
@@ -260,22 +240,13 @@ export function canAccessStudentImport(user, requesterRole) {
   );
   if (isSuperuser) return true;
 
-  const rawRole = (
-    user?.role ||
-    user?.role_code ||
-    requesterRole?.code ||
-    (typeof window !== "undefined" && (useAuthStore.getState().user?.role || useAuthStore.getState().requesterRole?.code)) ||
-    ""
-  ).toLowerCase().replace(/[\s-]+/g, "_");
+  const userPerms =
+    permissions ||
+    user?.permissions ||
+    (typeof window !== "undefined" && useAuthStore.getState().permissions) ||
+    [];
 
-  const normalizedRole =
-    rawRole === "admin" || rawRole === "school_admin" || rawRole === "schooladmin"
-      ? "school_admin"
-      : rawRole === "secretary" || rawRole === "secretariat"
-      ? "secretariat"
-      : rawRole;
-
-  return ["school_admin", "secretariat"].includes(normalizedRole);
+  return Array.isArray(userPerms) && userPerms.includes("students.import_students");
 }
 
 /**
@@ -349,6 +320,7 @@ export function usePermissions() {
   const canManageUserPerms = canManagePermissions(user, requesterRole, permissions);
   const canViewProfile = canViewStudentProfile(user, requesterRole, permissions);
   const canCorrectGrades = canCorrectPublishedGrades(user, requesterRole, permissions);
+  const canImportStudents = canAccessStudentImport(user, requesterRole, permissions);
 
   const role = normalizeRole(user?.role || requesterRole?.code);
   const isAccountantRole = role === "accountant";
@@ -361,6 +333,7 @@ export function usePermissions() {
     canManagePermissions: canManageUserPerms,
     canViewStudentProfile: canViewProfile,
     canCorrectPublishedGrades: canCorrectGrades,
+    canImportStudents,
     isAccountant: isAccountantRole,
     isSuperuser,
   };

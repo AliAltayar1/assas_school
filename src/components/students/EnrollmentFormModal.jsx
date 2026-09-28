@@ -402,7 +402,13 @@ export function EnrollmentFormModal({
 
     setIsSubmitting(true);
     try {
-      await onSubmit(formData);
+      const payload = { ...formData };
+      if (initialEnrollment?.id) {
+        delete payload.academic_year;
+        delete payload.section;
+        delete payload.student;
+      }
+      await onSubmit(payload);
       onClose();
     } catch (err) {
       const extractedErrors = getFieldErrors(err);
@@ -523,6 +529,7 @@ export function EnrollmentFormModal({
             options={gradeOptions}
             value={selectedGrade}
             onChange={handleGradeChange}
+            disabled={Boolean(initialEnrollment?.id)}
             placeholder="-- اختر الصف الدراسي (اكتب للبحث السريع) --"
             searchPlaceholder="اكتب اسم الصف للبحث..."
             emptyMessage="لا توجد صفوف مطابقة للبحث"
@@ -556,9 +563,11 @@ export function EnrollmentFormModal({
                 });
               }
             }}
-            disabled={!selectedGrade}
+            disabled={Boolean(initialEnrollment?.id) || !selectedGrade}
             placeholder={
-              !selectedGrade
+              Boolean(initialEnrollment?.id)
+                ? "-- الشعبة الحالية --"
+                : !selectedGrade
                 ? "-- اختر الصف الدراسي أولاً لعرض الشعب --"
                 : sectionOptions.length === 0
                 ? "-- لا توجد شعب متاحة لهذا الصف في هذا العام --"
@@ -580,7 +589,12 @@ export function EnrollmentFormModal({
           {fieldErrors.section && (
             <p className="text-[11px] text-rose-600 mt-1">{fieldErrors.section}</p>
           )}
-          {!selectedGrade && !fieldErrors.section && (
+          {Boolean(initialEnrollment?.id) && (
+            <p className="text-[10px] text-amber-700 mt-1.5 bg-amber-50 p-2 rounded-lg border border-amber-200/80">
+              * ملاحظة: تعديل الصف والشعبة مقفل في هذا النموذج. لتغيير الشعبة استخدم زر <strong>«نقل إلى شعبة أخرى»</strong>، ولتصحيح صف أو شعبة الطالب استخدم زر <strong>«تصحيح الصف والشعبة»</strong>.
+            </p>
+          )}
+          {!initialEnrollment?.id && !selectedGrade && !fieldErrors.section && (
             <p className="text-[11px] text-slate-400 mt-1">
               اختر الصف الدراسي في الحقل السابق لتظهر الشعب التابعة له فقط.
             </p>

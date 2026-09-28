@@ -110,13 +110,13 @@ function getRowStatusBadge(status) {
 }
 
 export function StudentImportPage() {
-  const { user, requesterRole } = useAuthStore();
+  const { user, requesterRole, permissions } = useAuthStore();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const basePath = getHomeRouteForRole(user);
 
   // Authorization check
-  const isAllowed = canAccessStudentImport(user, requesterRole);
+  const isAllowed = canAccessStudentImport(user, requesterRole, permissions);
 
   // File selection state
   const [selectedFile, setSelectedFile] = useState(null);
@@ -390,8 +390,7 @@ export function StudentImportPage() {
           غير مصرح بالوصول إلى هذه الميزة
         </h2>
         <p className="text-sm text-slate-600">
-          خاصية استيراد الطلاب من ملف Excel مخصصة فقط لمدير المدرسة (School Admin)
-          وأمانة السر (Secretariat).
+          خاصية استيراد الطلاب من ملف Excel تتطلب توفر صلاحية استيراد الطلاب (students.import_students).
         </p>
         <div>
           <Button onClick={() => navigate(basePath)}>

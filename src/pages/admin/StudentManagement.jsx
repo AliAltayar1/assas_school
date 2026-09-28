@@ -57,7 +57,7 @@ export function StudentManagement() {
   const navigate = useNavigate();
   const basePath = getHomeRouteForRole(user);
   const canViewProfile = canViewStudentProfile(user, requesterRole, permissions);
-  const canImportStudents = canAccessStudentImport(user, requesterRole);
+  const canImportStudents = canAccessStudentImport(user, requesterRole, permissions);
 
   // Student permissions
   const canAddStudent = hasPermission("students.add_student");
@@ -68,6 +68,7 @@ export function StudentManagement() {
   const canAddEnrollment = hasPermission("students.add_enrollment");
   const canChangeEnrollment = hasPermission("students.change_enrollment");
   const canTransferStudent = hasPermission("students.transfer_student");
+  const canCorrectPlacement = hasPermission("students.correct_enrollment_placement");
   const canDeleteEnrollment = hasPermission("students.delete_enrollment");
 
   // Guardian permissions
@@ -81,6 +82,7 @@ export function StudentManagement() {
     canAddEnrollment ||
     canChangeEnrollment ||
     canTransferStudent ||
+    canCorrectPlacement ||
     canDeleteEnrollment ||
     canAddGuardianLink ||
     canDeleteGuardianLink;
@@ -476,12 +478,14 @@ export function StudentManagement() {
     const res = await api.students.transferEnrollment(enrollmentId, newSectionId);
     toast.success(getApiSuccessMessage(res, "تم نقل الطالب إلى الشعبة الجديدة بنجاح."));
     fetchEnrollments(enrollmentPage);
+    return res;
   };
 
   const handleCorrectPlacementSubmit = async (enrollmentId, payload) => {
     const res = await api.students.correctPlacement(enrollmentId, payload);
-    toast.success(getApiSuccessMessage(res, "تم تصحيح شعبة الطالب بنجاح."));
+    toast.success(getApiSuccessMessage(res, "تم تصحيح شعبة تسجيل الطالب بنجاح."));
     fetchEnrollments(enrollmentPage);
+    return res;
   };
 
   const handleDeleteEnrollment = (enrollment) => {
@@ -1011,7 +1015,7 @@ export function StudentManagement() {
                       <td className="py-3 px-4 font-mono text-slate-600">
                         {enr.enrollment_date || "-"}
                       </td>
-                      {(canChangeEnrollment || canTransferStudent || canDeleteEnrollment) && (
+                      {(canChangeEnrollment || canTransferStudent || canCorrectPlacement || canDeleteEnrollment) && (
                         <td className="py-3 px-4 text-center">
                           <div className="flex items-center justify-center gap-1.5">
                             {/* Transfer Student Action */}
@@ -1021,26 +1025,26 @@ export function StudentManagement() {
                                   setTransferringEnrollment(enr);
                                   setIsTransferModalOpen(true);
                                 }}
-                                className="px-2 py-1 text-[11px] font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg flex items-center gap-1 transition-colors"
-                                title="نقل الطالب إلى شعبة أخرى"
+                                className="px-2.5 py-1 text-xs font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg flex items-center gap-1 transition-colors"
+                                title="نقل إلى شعبة أخرى"
                               >
                                 <ArrowLeftRight className="w-3.5 h-3.5" />
-                                <span>نقل</span>
+                                <span>نقل إلى شعبة أخرى</span>
                               </button>
                             )}
 
                             {/* Correct Placement Action */}
-                            {(canChangeEnrollment || canTransferStudent) && (
+                            {canCorrectPlacement && (
                               <button
                                 onClick={() => {
                                   setCorrectingEnrollment(enr);
                                   setIsCorrectPlacementModalOpen(true);
                                 }}
-                                className="px-2 py-1 text-[11px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg flex items-center gap-1 transition-colors"
-                                title="تصحيح الشعبة الدراسية (الخطأ الإدخالي المبدئي)"
+                                className="px-2.5 py-1 text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg flex items-center gap-1 transition-colors"
+                                title="تصحيح الصف والشعبة"
                               >
                                 <Layers className="w-3.5 h-3.5" />
-                                <span>تصحيح الشعبة</span>
+                                <span>تصحيح الصف والشعبة</span>
                               </button>
                             )}
 
@@ -1273,6 +1277,7 @@ export function StudentManagement() {
         onCorrectPlacement={handleCorrectPlacementSubmit}
         enrollment={correctingEnrollment}
         sections={sections}
+        gradeLevels={gradeLevels}
       />
 
       {/* 4. Guardian Link Modal */}

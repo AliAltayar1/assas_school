@@ -254,9 +254,63 @@ export function HomeworkManagement() {
     return parts.join(" ");
   }, []);
 
-  // Memoized options for SearchableSelect
+  // Helper to check if an assignment end date has expired
+  const isEndDateExpired = (dateStr) => {
+    if (!dateStr) return false;
+    try {
+      const cleanDate = dateStr.includes("T") ? dateStr.split("T")[0] : dateStr;
+      const d = new Date();
+      const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
+        return cleanDate < todayStr;
+      }
+      const target = new Date(dateStr);
+      target.setHours(0, 0, 0, 0);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return target < today;
+    } catch {
+      return false;
+    }
+  };
+
+  // Helper to check if a homework assignment is ended (Read Only for teachers)
+  const isAssignmentEnded = useCallback(
+    (assignmentIdOrObj, row = null) => {
+      if (row?.teacher_assignment_end_date && isEndDateExpired(row.teacher_assignment_end_date)) return true;
+      if (row?.assignment_end_date && isEndDateExpired(row.assignment_end_date)) return true;
+      if (row?.is_assignment_ended === true) return true;
+
+      if (typeof assignmentIdOrObj === "object" && assignmentIdOrObj !== null) {
+        if (assignmentIdOrObj.end_date && isEndDateExpired(assignmentIdOrObj.end_date)) return true;
+        if (assignmentIdOrObj.is_active === false && assignmentIdOrObj.end_date) return true;
+      }
+
+      const assignId =
+        typeof assignmentIdOrObj === "object"
+          ? assignmentIdOrObj?.id
+          : assignmentIdOrObj ||
+            (typeof row?.teacher_assignment === "object"
+              ? row?.teacher_assignment?.id
+              : row?.teacher_assignment);
+
+      if (assignId && assignments?.length > 0) {
+        const matched = assignments.find((a) => String(a.id) === String(assignId));
+        if (matched?.end_date && isEndDateExpired(matched.end_date)) return true;
+      }
+
+      return false;
+    },
+    [assignments]
+  );
+
+  // Memoized options for SearchableSelect (excludes ended assignments for teachers)
   const assignmentOptions = useMemo(() => {
-    return assignments.map((a) => {
+    const validAssignments = isTeacher
+      ? assignments.filter((a) => !isEndDateExpired(a.end_date))
+      : assignments;
+
+    return validAssignments.map((a) => {
       const subject = a.subject_display || a.subject_name || "مادة";
       const grade = a.grade_level_display || a.grade_level_name || "";
       const section = a.section_display || a.section_name || "";
@@ -270,7 +324,7 @@ export function HomeworkManagement() {
         subtext: teacher ? `المعلم المكلف: ${teacher}` : "",
       };
     });
-  }, [assignments]);
+  }, [assignments, isTeacher]);
 
   const formatDateTime = (isoString) => {
     if (!isoString) return "";
@@ -517,9 +571,18 @@ export function HomeworkManagement() {
 
   // Open Create Modal
   const handleOpenCreate = () => {
+    const validAssignments = isTeacher
+      ? assignments.filter((a) => !isEndDateExpired(a.end_date))
+      : assignments;
+
+    if (isTeacher && assignments.length > 0 && validAssignments.length === 0) {
+      toast.warning("جميع التكليفات التدريسية الخاصة بك منتهية، لا يمكن إنشاء واجبات جديدة.");
+      return;
+    }
+
     setModalError(null);
     setCreateForm({
-      teacher_assignment: assignments[0]?.id || "",
+      teacher_assignment: validAssignments[0]?.id || "",
       title: "",
       description: "",
       homework_date: new Date().toISOString().split("T")[0],
@@ -533,6 +596,10 @@ export function HomeworkManagement() {
 
   // Open Edit Modal
   const handleOpenEdit = (hw) => {
+    if (isTeacher && isAssignmentEnded(hw.teacher_assignment, hw)) {
+      toast.warning("التكليف التعليمي منتهٍ، هذا الواجب متاح للعرض فقط.");
+      return;
+    }
     setSelectedHomework(hw);
     setModalError(null);
     setEditForm({
@@ -554,6 +621,10 @@ export function HomeworkManagement() {
 
   // Open Delete Modal
   const handleOpenDelete = (hw) => {
+    if (isTeacher && isAssignmentEnded(hw.teacher_assignment, hw)) {
+      toast.warning("التكليف التعليمي منتهٍ، لا يمكن حذف هذا الواجب.");
+      return;
+    }
     setSelectedHomework(hw);
     setIsDeleteModalOpen(true);
   };
@@ -1102,24 +1173,35 @@ export function HomeworkManagement() {
                               <Eye className="w-4 h-4" />
                             </button>
 
-                            {canChangeHomework && (
-                              <button
-                                onClick={() => handleOpenEdit(row)}
-                                className="p-1.5 text-slate-600 hover:text-blue-700 hover:bg-slate-100 rounded-lg transition-colors"
-                                title="تعديل الواجب"
+                            {isTeacher && isAssignmentEnded(row.teacher_assignment, row) ? (
+                              <span
+                                className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md font-semibold inline-flex items-center"
+                                title="التكليف التعليمي منتهٍ - الواجب للعرض فقط"
                               >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
-                            )}
+                                تكليف منتهٍ
+                              </span>
+                            ) : (
+                              <>
+                                {canChangeHomework && (
+                                  <button
+                                    onClick={() => handleOpenEdit(row)}
+                                    className="p-1.5 text-slate-600 hover:text-blue-700 hover:bg-slate-100 rounded-lg transition-colors"
+                                    title="تعديل الواجب"
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                )}
 
-                            {canDeleteHomework && (
-                              <button
-                                onClick={() => handleOpenDelete(row)}
-                                className="p-1.5 text-slate-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
-                                title="حذف الواجب"
-                              >
-                                <Trash2 className="w-4 h-4 text-rose-500" />
-                              </button>
+                                {canDeleteHomework && (
+                                  <button
+                                    onClick={() => handleOpenDelete(row)}
+                                    className="p-1.5 text-slate-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
+                                    title="حذف الواجب"
+                                  >
+                                    <Trash2 className="w-4 h-4 text-rose-500" />
+                                  </button>
+                                )}
+                              </>
                             )}
                           </div>
                         </td>
@@ -1235,24 +1317,32 @@ export function HomeworkManagement() {
                         <span>التفاصيل</span>
                       </button>
 
-                      {canChangeHomework && (
-                        <button
-                          onClick={() => handleOpenEdit(row)}
-                          className="flex-1 flex items-center justify-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 text-xs font-bold py-2 px-3 rounded-xl transition-colors border border-blue-200"
-                        >
-                          <Edit2 className="w-3.5 h-3.5 text-blue-600" />
-                          <span>تعديل</span>
-                        </button>
-                      )}
+                      {isTeacher && isAssignmentEnded(row.teacher_assignment, row) ? (
+                        <div className="flex-1 py-1.5 px-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-center text-xs font-semibold">
+                          تكليف منتهٍ (للقراءة فقط)
+                        </div>
+                      ) : (
+                        <>
+                          {canChangeHomework && (
+                            <button
+                              onClick={() => handleOpenEdit(row)}
+                              className="flex-1 flex items-center justify-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 text-xs font-bold py-2 px-3 rounded-xl transition-colors border border-blue-200"
+                            >
+                              <Edit2 className="w-3.5 h-3.5 text-blue-600" />
+                              <span>تعديل</span>
+                            </button>
+                          )}
 
-                      {canDeleteHomework && (
-                        <button
-                          onClick={() => handleOpenDelete(row)}
-                          className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl transition-colors border border-rose-200"
-                          title="حذف الواجب"
-                        >
-                          <Trash2 className="w-4 h-4 text-rose-600" />
-                        </button>
+                          {canDeleteHomework && (
+                            <button
+                              onClick={() => handleOpenDelete(row)}
+                              className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl transition-colors border border-rose-200"
+                              title="حذف الواجب"
+                            >
+                              <Trash2 className="w-4 h-4 text-rose-600" />
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -1823,6 +1913,14 @@ export function HomeworkManagement() {
               </div>
             )}
 
+            {/* Read-only warning for teachers when assignment is ended */}
+            {isTeacher && isAssignmentEnded(selectedHomework.teacher_assignment, selectedHomework) && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2 text-amber-800 text-xs font-semibold">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>هذا الواجب يتبع لتكليف تعليمي منتهٍ، وهو متاح للعرض والمطالعة فقط ولا يمكن تعديله أو حذفه.</span>
+              </div>
+            )}
+
             {/* Modal Actions */}
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
               <Button
@@ -1832,16 +1930,18 @@ export function HomeworkManagement() {
               >
                 إغلاق
               </Button>
-              <Button
-                onClick={() => {
-                  setIsDetailsModalOpen(false);
-                  handleOpenEdit(selectedHomework);
-                }}
-                className="gap-1.5 text-xs font-bold"
-              >
-                <Edit2 className="w-3.5 h-3.5" />
-                <span>تعديل الواجب</span>
-              </Button>
+              {canChangeHomework && !(isTeacher && isAssignmentEnded(selectedHomework.teacher_assignment, selectedHomework)) && (
+                <Button
+                  onClick={() => {
+                    setIsDetailsModalOpen(false);
+                    handleOpenEdit(selectedHomework);
+                  }}
+                  className="gap-1.5 text-xs font-bold"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  <span>تعديل الواجب</span>
+                </Button>
+              )}
             </div>
           </div>
         </Modal>

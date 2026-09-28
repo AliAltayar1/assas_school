@@ -136,11 +136,10 @@ export function AppRoutes() {
               <Route path="/teacher/students" element={<StudentManagement />} />
             </Route>
 
-            {/* Student Comprehensive Profile (Restricted to School Admin, Secretariat, Supervisor, Superuser with students.view_student_profile) */}
+            {/* Student Comprehensive Profile (Restricted to users with students.view_student_profile or Superuser) */}
             <Route
               element={
                 <ProtectedRoute
-                  allowedRoles={['school_admin', 'admin', 'secretariat', 'secretary', 'supervisor', 'educational_supervisor']}
                   requiredPermissions={['students.view_student_profile']}
                 />
               }
@@ -148,13 +147,14 @@ export function AppRoutes() {
               <Route path="/admin/students/:studentId/profile" element={<StudentProfilePage />} />
               <Route path="/secretariat/students/:studentId/profile" element={<StudentProfilePage />} />
               <Route path="/supervisor/students/:studentId/profile" element={<StudentProfilePage />} />
+              <Route path="/teacher/students/:studentId/profile" element={<StudentProfilePage />} />
             </Route>
 
-            {/* Student Excel Import (Restricted to School Admin, Secretariat, Superuser) */}
+            {/* Student Excel Import (Governed strictly by students.import_students) */}
             <Route
               element={
                 <ProtectedRoute
-                  allowedRoles={['school_admin', 'admin', 'secretariat', 'secretary']}
+                  requiredPermissions={['students.import_students']}
                 />
               }
             >
@@ -162,6 +162,8 @@ export function AppRoutes() {
               <Route path="/admin/students/import-excel" element={<StudentImportPage />} />
               <Route path="/secretariat/students/import" element={<StudentImportPage />} />
               <Route path="/secretariat/students/import-excel" element={<StudentImportPage />} />
+              <Route path="/supervisor/students/import" element={<StudentImportPage />} />
+              <Route path="/supervisor/students/import-excel" element={<StudentImportPage />} />
             </Route>
 
             {/* Daily Attendance */}
