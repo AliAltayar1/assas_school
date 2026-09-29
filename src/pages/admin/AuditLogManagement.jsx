@@ -105,7 +105,6 @@ export function AuditLogManagement() {
       };
 
       const res = await api.auditLogs.getLogs(params);
-      console.log(res);
       const list = extractPaginatedList(res);
 
       const count = res?.data?.count ?? res?.count ?? list.length;

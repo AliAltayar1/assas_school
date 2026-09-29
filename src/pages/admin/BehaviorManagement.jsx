@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api";
 import { useAuthStore } from "../../store/useAuthStore";
-import { getHomeRouteForRole, canViewStudentProfile } from "../../utils/permissionUtils";
+import { getBaseRouteForRole, canViewStudentProfile } from "../../utils/permissionUtils";
 import { Modal } from "../../components/ui/Modal";
 import { ConfirmModal } from "../../components/ui/ConfirmModal";
 import { Button } from "../../components/ui/Button";
@@ -40,7 +40,7 @@ import {
 
 export function BehaviorManagement() {
   const { user, requesterRole, permissions, hasPermission } = useAuthStore();
-  const basePath = getHomeRouteForRole(user);
+  const basePath = getBaseRouteForRole(user);
   const canViewProfile = canViewStudentProfile(user, requesterRole, permissions);
 
   const canAddNote = hasPermission("behavior.add_behaviornote");

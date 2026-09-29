@@ -7,7 +7,7 @@ import {
   canManageStudents,
   canViewStudentProfile,
   canAccessStudentImport,
-  getHomeRouteForRole,
+  getBaseRouteForRole,
 } from "../../utils/permissionUtils";
 import {
   parseApiError,
@@ -55,7 +55,7 @@ import { exportStudentsToExcel } from "../../utils/studentExportUtils";
 export function StudentManagement() {
   const { user, requesterRole, permissions, hasPermission } = useAuthStore();
   const navigate = useNavigate();
-  const basePath = getHomeRouteForRole(user);
+  const basePath = getBaseRouteForRole(user);
   const canViewProfile = canViewStudentProfile(user, requesterRole, permissions);
   const canImportStudents = canAccessStudentImport(user, requesterRole, permissions);
 

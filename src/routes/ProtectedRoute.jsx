@@ -29,6 +29,17 @@ export function getHomeRouteForRole(userObj) {
   return "/admin";
 }
 
+export function getBaseRouteForRole(userObj) {
+  const rawRole = userObj?.role || userObj?.role_code || userObj?.role_name || "";
+  const role = normalizeRole(rawRole);
+  if (role === "school_admin") return "/admin";
+  if (role === "secretariat") return "/secretariat";
+  if (role === "supervisor") return "/supervisor";
+  if (role === "teacher") return "/teacher";
+  if (role === "accountant") return "/accountant";
+  return "/admin";
+}
+
 export function ProtectedRoute({
   allowedRoles = [],
   requiredPermissions = [],

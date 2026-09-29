@@ -4,7 +4,7 @@ import { studentsService } from "../../api/studentsService";
 import { useAuthStore } from "../../store/useAuthStore";
 import {
   canAccessStudentImport,
-  getHomeRouteForRole,
+  getBaseRouteForRole,
 } from "../../utils/permissionUtils";
 import {
   parseApiError,
@@ -113,7 +113,7 @@ export function StudentImportPage() {
   const { user, requesterRole, permissions } = useAuthStore();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const basePath = getHomeRouteForRole(user);
+  const basePath = getBaseRouteForRole(user);
 
   // Authorization check
   const isAllowed = canAccessStudentImport(user, requesterRole, permissions);

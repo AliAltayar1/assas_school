@@ -4,7 +4,7 @@ import { api } from "../../api";
 import { useAuthStore } from "../../store/useAuthStore";
 import {
   canViewStudentProfile,
-  getHomeRouteForRole,
+  getBaseRouteForRole,
 } from "../../utils/permissionUtils";
 import { parseApiError, extractPaginatedList } from "../../utils/errorUtils";
 import { Badge } from "../../components/ui/Badge";
@@ -107,7 +107,7 @@ export function StudentProfilePage() {
   const { user, requesterRole, permissions, hasPermission } = useAuthStore();
 
   const isAllowed = canViewStudentProfile(user, requesterRole, permissions);
-  const basePath = getHomeRouteForRole(user);
+  const basePath = getBaseRouteForRole(user);
 
   // Student Points Permissions
   const canViewPoints = hasPermission("behavior.view_studentpointentry");

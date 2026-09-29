@@ -1,7 +1,7 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuthStore } from "../store/useAuthStore";
-import { getHomeRouteForRole, normalizeRole } from "../routes/ProtectedRoute";
+import { getHomeRouteForRole, getBaseRouteForRole, normalizeRole } from "../routes/ProtectedRoute";
 import {
   ACADEMICS_PERMISSIONS,
   TEACHING_PERMISSIONS,
@@ -43,7 +43,7 @@ export function Sidebar() {
   );
   const rawRole = user?.role || user?.role_code || user?.role_name || "";
   const currentRole = normalizeRole(rawRole);
-  const basePath = currentRole === "accountant" ? "/accountant" : getHomeRouteForRole(user);
+  const basePath = getBaseRouteForRole(user);
 
   // 1. Overview Item based on current role space (Dashboard Overview preserved)
   const overviewLabels = {

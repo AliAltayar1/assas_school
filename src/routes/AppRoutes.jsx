@@ -106,6 +106,7 @@ export function AppRoutes() {
               <Route path="/secretariat/users" element={<UserStaffManagement />} />
               <Route path="/supervisor/users" element={<UserStaffManagement />} />
               <Route path="/teacher/users" element={<UserStaffManagement />} />
+              <Route path="/accountant/users" element={<UserStaffManagement />} />
             </Route>
 
             {/* Academics Structure */}
@@ -114,6 +115,7 @@ export function AppRoutes() {
               <Route path="/secretariat/academics" element={<AcademicManagement />} />
               <Route path="/supervisor/academics" element={<AcademicManagement />} />
               <Route path="/teacher/academics" element={<AcademicManagement />} />
+              <Route path="/accountant/academics" element={<AcademicManagement />} />
             </Route>
 
             {/* Teaching Assignments */}
@@ -126,6 +128,8 @@ export function AppRoutes() {
               <Route path="/supervisor/teaching-assignments" element={<TeacherManagement />} />
               <Route path="/supervisor/assignments" element={<TeacherManagement />} />
               <Route path="/teacher/assignments" element={<TeacherManagement />} />
+              <Route path="/accountant/teachers" element={<TeacherManagement />} />
+              <Route path="/accountant/assignments" element={<TeacherManagement />} />
             </Route>
 
             {/* Students & Enrollments */}
@@ -134,6 +138,7 @@ export function AppRoutes() {
               <Route path="/secretariat/students" element={<StudentManagement />} />
               <Route path="/supervisor/students" element={<StudentManagement />} />
               <Route path="/teacher/students" element={<StudentManagement />} />
+              <Route path="/accountant/students" element={<StudentManagement />} />
             </Route>
 
             {/* Student Comprehensive Profile (Restricted to users with students.view_student_profile or Superuser) */}
@@ -148,6 +153,7 @@ export function AppRoutes() {
               <Route path="/secretariat/students/:studentId/profile" element={<StudentProfilePage />} />
               <Route path="/supervisor/students/:studentId/profile" element={<StudentProfilePage />} />
               <Route path="/teacher/students/:studentId/profile" element={<StudentProfilePage />} />
+              <Route path="/accountant/students/:studentId/profile" element={<StudentProfilePage />} />
             </Route>
 
             {/* Student Excel Import (Governed strictly by students.import_students) */}
@@ -164,6 +170,8 @@ export function AppRoutes() {
               <Route path="/secretariat/students/import-excel" element={<StudentImportPage />} />
               <Route path="/supervisor/students/import" element={<StudentImportPage />} />
               <Route path="/supervisor/students/import-excel" element={<StudentImportPage />} />
+              <Route path="/accountant/students/import" element={<StudentImportPage />} />
+              <Route path="/accountant/students/import-excel" element={<StudentImportPage />} />
             </Route>
 
             {/* Daily Attendance */}
@@ -173,6 +181,7 @@ export function AppRoutes() {
               <Route path="/supervisor/attendance" element={<AttendanceManagement />} />
               <Route path="/supervisor/attendance-approvals" element={<Navigate to="/supervisor/attendance" replace />} />
               <Route path="/teacher/attendance" element={<AttendanceManagement />} />
+              <Route path="/accountant/attendance" element={<AttendanceManagement />} />
             </Route>
 
             {/* Behavior Notes */}
@@ -182,6 +191,7 @@ export function AppRoutes() {
               <Route path="/supervisor/behavior" element={<BehaviorManagement />} />
               <Route path="/supervisor/behavior-notes" element={<BehaviorManagement />} />
               <Route path="/teacher/behavior" element={<BehaviorManagement />} />
+              <Route path="/accountant/behavior" element={<BehaviorManagement />} />
             </Route>
 
             {/* Daily Homework */}
@@ -190,6 +200,7 @@ export function AppRoutes() {
               <Route path="/secretariat/homework" element={<HomeworkManagement />} />
               <Route path="/supervisor/homework" element={<HomeworkManagement />} />
               <Route path="/teacher/homework" element={<HomeworkManagement />} />
+              <Route path="/accountant/homework" element={<HomeworkManagement />} />
             </Route>
 
             {/* Announcements */}
@@ -198,6 +209,7 @@ export function AppRoutes() {
               <Route path="/secretariat/announcements" element={<AnnouncementManagement />} />
               <Route path="/supervisor/announcements" element={<AnnouncementManagement />} />
               <Route path="/teacher/announcements" element={<AnnouncementManagement />} />
+              <Route path="/accountant/announcements" element={<AnnouncementManagement />} />
             </Route>
 
             {/* School Requests */}
@@ -206,6 +218,7 @@ export function AppRoutes() {
               <Route path="/secretariat/requests" element={<RequestManagement />} />
               <Route path="/supervisor/requests" element={<RequestManagement />} />
               <Route path="/teacher/requests" element={<RequestManagement />} />
+              <Route path="/accountant/requests" element={<RequestManagement />} />
             </Route>
 
             {/* Appointments */}
@@ -235,6 +248,7 @@ export function AppRoutes() {
               <Route path="/supervisor/grades" element={<GradesManagement />} />
               <Route path="/supervisor/grade-approvals" element={<GradesManagement />} />
               <Route path="/teacher/grades" element={<GradesManagement />} />
+              <Route path="/accountant/grades" element={<GradesManagement />} />
             </Route>
 
             {/* Audit Logs */}
