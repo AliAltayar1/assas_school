@@ -7,7 +7,7 @@ import { Alert } from "../../components/ui/Alert";
 import { Pagination } from "../../components/ui/Pagination";
 import { toast } from "sonner";
 import { parseApiError, extractPaginatedList } from "../../utils/errorUtils";
-import { SearchableSelect } from "../../components/ui/SearchableSelect";
+import { SearchableSelect, normalizeArabic } from "../../components/ui/SearchableSelect";
 import {
   ClipboardList,
   Plus,
@@ -57,6 +57,7 @@ export function HomeworkManagement() {
   const [assignments, setAssignments] = useState([]);
   const [sections, setSections] = useState([]);
   const [gradeSubjects, setGradeSubjects] = useState([]);
+  const [gradeLevels, setGradeLevels] = useState([]);
   const [teachers, setTeachers] = useState([]);
 
   // Pagination states
@@ -93,8 +94,11 @@ export function HomeworkManagement() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalError, setModalError] = useState(null);
 
-  // Manual UUID input toggle
-  const [useManualUuid, setUseManualUuid] = useState(false);
+  // Create Modal mode & cascading selection states (Grade, Section, Subject)
+  const [createMode, setCreateMode] = useState("cascade"); // 'cascade' | 'direct' | 'manual'
+  const [createGrade, setCreateGrade] = useState("");
+  const [createSection, setCreateSection] = useState("");
+  const [createSubject, setCreateSubject] = useState("");
 
   // Form states
   const [createForm, setCreateForm] = useState({
@@ -126,51 +130,62 @@ export function HomeworkManagement() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // Fetch Metadata for dropdowns (Assignments, Sections, GradeSubjects, Teachers)
+  // Fetch Metadata for dropdowns (Assignments, Sections, GradeSubjects, GradeLevels, Teachers)
   const fetchMetadata = useCallback(async () => {
     try {
-      const fetchAllTeachers = async () => {
-        if (isTeacher || !api.users?.getUsers) return [];
+      const fetchAllPaginated = async (fetchFn, defaultParams = { page_size: 100 }) => {
+        if (!fetchFn) return [];
         let all = [];
         let page = 1;
         let hasNext = true;
         while (hasNext && page <= 20) {
-          const res = await api.users.getUsers({ role: "teacher", page, page_size: 100 });
-          const { results, next } = extractPaginatedList(res);
-          all = all.concat(results);
-          if (next && results.length > 0) {
-            page += 1;
-          } else {
+          try {
+            const res = await fetchFn({ ...defaultParams, page });
+            const { results, next } = extractPaginatedList(res);
+            if (results && results.length > 0) {
+              all = all.concat(results);
+            }
+            if (next && results && results.length > 0) {
+              page += 1;
+            } else {
+              hasNext = false;
+            }
+          } catch {
             hasNext = false;
           }
         }
         return all;
       };
 
-      const [assignData, secData, gsData, teachersList] = await Promise.all([
-        api.teachingAssignments?.getAll
-          ? api.teachingAssignments.getAll().catch(() => null)
-          : null,
-        api.academics?.getSections
-          ? api.academics.getSections().catch(() => null)
-          : null,
-        api.academics?.getGradeSubjects
-          ? api.academics.getGradeSubjects().catch(() => null)
+      const fetchAllTeachers = async () => {
+        if (isTeacher || !api.users?.getUsers) return [];
+        return fetchAllPaginated(api.users.getUsers, { role: "teacher", page_size: 100 });
+      };
+
+      const [assignList, secList, gsList, glData, teachersList] = await Promise.all([
+        fetchAllPaginated(api.teachingAssignments?.getAll, { page_size: 200 }).catch(() => []),
+        fetchAllPaginated(api.academics?.getSections, { page_size: 200 }).catch(() => []),
+        fetchAllPaginated(api.academics?.getGradeSubjects, { page_size: 200 }).catch(() => []),
+        api.academics?.getGradeLevels
+          ? api.academics.getGradeLevels({ page_size: 200 }).catch(() => null)
           : null,
         fetchAllTeachers().catch(() => []),
       ]);
 
-      if (assignData) {
-        setAssignments(extractPaginatedList(assignData).results || []);
+      if (assignList && assignList.length > 0) {
+        setAssignments(assignList);
       }
-      if (secData) {
-        setSections(extractPaginatedList(secData).results || []);
+      if (secList && secList.length > 0) {
+        setSections(secList);
       }
-      if (gsData) {
-        setGradeSubjects(extractPaginatedList(gsData).results || []);
+      if (gsList && gsList.length > 0) {
+        setGradeSubjects(gsList);
       }
-      if (teachersList) {
-        setTeachers(teachersList || []);
+      if (glData) {
+        setGradeLevels(extractPaginatedList(glData).results || []);
+      }
+      if (teachersList && teachersList.length > 0) {
+        setTeachers(teachersList);
       }
     } catch (_) {}
   }, [isTeacher]);
@@ -304,12 +319,524 @@ export function HomeworkManagement() {
     [assignments]
   );
 
-  // Memoized options for SearchableSelect (excludes ended assignments for teachers)
-  const assignmentOptions = useMemo(() => {
-    const validAssignments = isTeacher
+  // Helper to extract grade level ID
+  const getGradeLevelId = useCallback((item) => {
+    if (!item) return "";
+    if (typeof item.grade_level === "object" && item.grade_level !== null) {
+      return item.grade_level.id || "";
+    }
+    return item.grade_level || item.grade_level_id || "";
+  }, []);
+
+  // Helper to extract grade level Name
+  const getGradeLevelName = useCallback((item) => {
+    if (!item) return "";
+    if (typeof item.grade_level === "object" && item.grade_level !== null) {
+      return item.grade_level.name || item.grade_level.display_name || "";
+    }
+    return item.grade_level_display || item.grade_level_name || "";
+  }, []);
+
+  // Helper to normalize grade title for display
+  const formatGradeName = useCallback((rawName) => {
+    if (!rawName) return "";
+    const trimmed = String(rawName).trim();
+    if (
+      trimmed.startsWith("الصف") ||
+      trimmed.startsWith("صف") ||
+      trimmed.startsWith("روضة") ||
+      trimmed.startsWith("رياض") ||
+      trimmed.startsWith("مرحلة")
+    ) {
+      return trimmed;
+    }
+    return `الصف ${trimmed}`;
+  }, []);
+
+  // Unified list of Grade Levels (combines API gradeLevels + derived from assignments, sections, gradeSubjects)
+  const derivedGradeLevels = useMemo(() => {
+    const map = new Map();
+    if (gradeLevels && gradeLevels.length > 0) {
+      gradeLevels.forEach((gl) => {
+        if (gl.id) {
+          const name = gl.name || gl.display_name || gl.title || "";
+          map.set(String(gl.id), {
+            id: String(gl.id),
+            name: formatGradeName(name),
+            order: gl.order ?? 999,
+          });
+        }
+      });
+    }
+
+    assignments.forEach((a) => {
+      const id = getGradeLevelId(a);
+      const name = getGradeLevelName(a);
+      if (id && !map.has(String(id))) {
+        map.set(String(id), {
+          id: String(id),
+          name: formatGradeName(name || `صف (${String(id).slice(0, 8)})`),
+          order: 999,
+        });
+      }
+    });
+
+    sections.forEach((sec) => {
+      const id = getGradeLevelId(sec);
+      const name = getGradeLevelName(sec);
+      if (id && !map.has(String(id))) {
+        map.set(String(id), {
+          id: String(id),
+          name: formatGradeName(name || `صف (${String(id).slice(0, 8)})`),
+          order: 999,
+        });
+      }
+    });
+
+    gradeSubjects.forEach((gs) => {
+      const id = getGradeLevelId(gs);
+      const name = getGradeLevelName(gs);
+      if (id && !map.has(String(id))) {
+        map.set(String(id), {
+          id: String(id),
+          name: formatGradeName(name || `صف (${String(id).slice(0, 8)})`),
+          order: 999,
+        });
+      }
+    });
+
+    const list = Array.from(map.values());
+    list.sort((a, b) => {
+      if (a.order !== 999 && b.order !== 999 && a.order !== b.order) {
+        return a.order - b.order;
+      }
+      return (a.name || "").localeCompare(b.name || "", "ar");
+    });
+    return list;
+  }, [
+    gradeLevels,
+    assignments,
+    sections,
+    gradeSubjects,
+    getGradeLevelId,
+    getGradeLevelName,
+    formatGradeName,
+  ]);
+
+  // Valid Active Assignments (excludes ended assignments for teachers)
+  const validAssignments = useMemo(() => {
+    return isTeacher
       ? assignments.filter((a) => !isEndDateExpired(a.end_date))
       : assignments;
+  }, [assignments, isTeacher]);
 
+  // Helpers to resolve grade, section, subject from an assignment
+  const getAssignmentGradeId = useCallback(
+    (a) => {
+      if (!a) return "";
+      const directId = getGradeLevelId(a);
+      if (directId) return String(directId);
+
+      const secId = typeof a.section === "object" ? a.section?.id : a.section;
+      if (secId) {
+        const sec = sections.find((s) => String(s.id) === String(secId));
+        if (sec) {
+          const sGlId = getGradeLevelId(sec);
+          if (sGlId) return String(sGlId);
+        }
+      }
+
+      const gsId =
+        typeof a.grade_subject === "object" ? a.grade_subject?.id : a.grade_subject;
+      if (gsId) {
+        const gs = gradeSubjects.find((g) => String(g.id) === String(gsId));
+        if (gs) {
+          const gsGlId = getGradeLevelId(gs);
+          if (gsGlId) return String(gsGlId);
+        }
+      }
+
+      const gradeName = a.grade_level_display || a.grade_level_name || "";
+      if (gradeName) {
+        const matched = derivedGradeLevels.find(
+          (gl) =>
+            normalizeArabic(gl.name).includes(normalizeArabic(gradeName)) ||
+            normalizeArabic(gradeName).includes(normalizeArabic(gl.name))
+        );
+        if (matched) return String(matched.id);
+        return gradeName;
+      }
+      return "";
+    },
+    [sections, gradeSubjects, derivedGradeLevels, getGradeLevelId]
+  );
+
+  const getAssignmentSectionId = useCallback(
+    (a) => {
+      if (!a) return "";
+      if (typeof a.section === "object" && a.section?.id)
+        return String(a.section.id);
+      if (a.section && typeof a.section === "string") return String(a.section);
+      if (a.section_id) return String(a.section_id);
+
+      const secName = a.section_display || a.section_name || "";
+      if (secName) {
+        const sec = sections.find((s) => (s.name || s.section_name) === secName);
+        if (sec) return String(sec.id);
+        return secName;
+      }
+      return "";
+    },
+    [sections]
+  );
+
+  const getAssignmentSubjectId = useCallback(
+    (a) => {
+      if (!a) return "";
+      if (typeof a.grade_subject === "object" && a.grade_subject?.id)
+        return String(a.grade_subject.id);
+      if (a.grade_subject && typeof a.grade_subject === "string")
+        return String(a.grade_subject);
+      if (typeof a.subject === "object" && a.subject?.id)
+        return String(a.subject.id);
+      if (a.subject && typeof a.subject === "string") return String(a.subject);
+
+      const subjName = a.subject_display || a.subject_name || "";
+      if (subjName) {
+        const gs = gradeSubjects.find(
+          (g) => (g.subject_display || g.subject_name || g.name) === subjName
+        );
+        if (gs) return String(gs.id);
+        return subjName;
+      }
+      return String(a.id);
+    },
+    [gradeSubjects]
+  );
+
+  const getAssignmentSubjectName = useCallback(
+    (a) => {
+      if (!a) return "";
+      if (a.subject_display) return a.subject_display;
+      if (a.subject_name) return a.subject_name;
+      if (typeof a.subject === "object" && a.subject?.name)
+        return a.subject.name;
+      if (typeof a.grade_subject === "object") {
+        return (
+          a.grade_subject.subject_display ||
+          a.grade_subject.subject_name ||
+          a.grade_subject.name ||
+          ""
+        );
+      }
+      const gsId =
+        typeof a.grade_subject === "string" ? a.grade_subject : "";
+      if (gsId) {
+        const gs = gradeSubjects.find((g) => String(g.id) === String(gsId));
+        if (gs) return gs.subject_display || gs.subject_name || gs.name || "";
+      }
+      return "المادة الدراسية";
+    },
+    [gradeSubjects]
+  );
+
+  // Cascading options for Create Modal:
+  // 1. Grade Options
+  const createGradeOptions = useMemo(() => {
+    if (isTeacher) {
+      const teacherGradeIds = new Set(
+        validAssignments.map((a) => getAssignmentGradeId(a)).filter(Boolean)
+      );
+      const list = derivedGradeLevels.filter((gl) =>
+        teacherGradeIds.has(String(gl.id))
+      );
+      return list.map((gl) => ({
+        value: String(gl.id),
+        label: gl.name,
+      }));
+    }
+    return derivedGradeLevels.map((gl) => ({
+      value: String(gl.id),
+      label: gl.name,
+    }));
+  }, [isTeacher, validAssignments, derivedGradeLevels, getAssignmentGradeId]);
+
+  // 2. Section Options (Filtered by selected Grade)
+  const createSectionOptions = useMemo(() => {
+    if (!createGrade) return [];
+
+    if (isTeacher) {
+      const map = new Map();
+      validAssignments.forEach((a) => {
+        const aGradeId = getAssignmentGradeId(a);
+        if (String(aGradeId) === String(createGrade)) {
+          const sId = getAssignmentSectionId(a);
+          const sName = a.section_display || a.section_name || "";
+          if (sId && !map.has(sId)) {
+            const formatted = sName
+              ? sName.startsWith("شعبة") || sName.startsWith("الشعبة")
+                ? sName
+                : `الشعبة ${sName}`
+              : `شعبة (${sId.slice(0, 6)})`;
+            map.set(sId, {
+              value: sId,
+              label: formatted,
+            });
+          }
+        }
+      });
+      return Array.from(map.values());
+    }
+
+    // Admin: Sections in this grade
+    const map = new Map();
+    sections.forEach((sec) => {
+      const secGradeId = getGradeLevelId(sec);
+      if (String(secGradeId) === String(createGrade)) {
+        const sName = sec.name || sec.section_name || "";
+        const formatted = sName
+          ? sName.startsWith("شعبة") || sName.startsWith("الشعبة")
+            ? sName
+            : `الشعبة ${sName}`
+          : `شعبة (${sec.id.slice(0, 6)})`;
+        map.set(String(sec.id), {
+          value: String(sec.id),
+          label: formatted,
+        });
+      }
+    });
+
+    validAssignments.forEach((a) => {
+      const aGradeId = getAssignmentGradeId(a);
+      if (String(aGradeId) === String(createGrade)) {
+        const sId = getAssignmentSectionId(a);
+        const sName = a.section_display || a.section_name || "";
+        if (sId && !map.has(sId)) {
+          const formatted = sName
+            ? sName.startsWith("شعبة") || sName.startsWith("الشعبة")
+              ? sName
+              : `الشعبة ${sName}`
+            : `شعبة (${sId.slice(0, 6)})`;
+          map.set(sId, {
+            value: sId,
+            label: formatted,
+          });
+        }
+      }
+    });
+
+    return Array.from(map.values());
+  }, [
+    createGrade,
+    isTeacher,
+    validAssignments,
+    sections,
+    getAssignmentGradeId,
+    getAssignmentSectionId,
+    getGradeLevelId,
+  ]);
+
+  // 3. Subject Options (Filtered by selected Grade & Section)
+  const createSubjectOptions = useMemo(() => {
+    if (!createGrade || !createSection) return [];
+
+    const map = new Map();
+
+    validAssignments.forEach((a) => {
+      const aGradeId = getAssignmentGradeId(a);
+      const aSecId = getAssignmentSectionId(a);
+
+      if (
+        String(aGradeId) === String(createGrade) &&
+        String(aSecId) === String(createSection)
+      ) {
+        const subjId = getAssignmentSubjectId(a) || a.id;
+        const subjName = getAssignmentSubjectName(a);
+        const teacherName = a.teacher_display || a.teacher_name || "";
+
+        if (!map.has(subjId)) {
+          map.set(subjId, {
+            value: subjId,
+            label: subjName,
+            subtext: teacherName ? `المعلم: ${teacherName}` : "",
+            assignmentId: a.id,
+          });
+        }
+      }
+    });
+
+    if (!isTeacher) {
+      gradeSubjects.forEach((gs) => {
+        const gsGradeId = getGradeLevelId(gs);
+        if (String(gsGradeId) === String(createGrade)) {
+          const id = String(gs.id);
+          const name =
+            gs.subject_display || gs.subject_name || gs.name || "مادة دراسية";
+          if (!map.has(id)) {
+            const assign = validAssignments.find(
+              (a) =>
+                String(getAssignmentGradeId(a)) === String(createGrade) &&
+                String(getAssignmentSectionId(a)) === String(createSection) &&
+                String(getAssignmentSubjectId(a)) === id
+            );
+            map.set(id, {
+              value: id,
+              label: name,
+              subtext: assign?.teacher_display
+                ? `المعلم: ${assign.teacher_display}`
+                : "",
+              assignmentId: assign?.id || null,
+            });
+          }
+        }
+      });
+    }
+
+    return Array.from(map.values());
+  }, [
+    createGrade,
+    createSection,
+    isTeacher,
+    validAssignments,
+    gradeSubjects,
+    getAssignmentGradeId,
+    getAssignmentSectionId,
+    getAssignmentSubjectId,
+    getAssignmentSubjectName,
+    getGradeLevelId,
+  ]);
+
+  // Matching Assignments for currently selected Grade, Section & Subject
+  const matchedAssignmentsForSelection = useMemo(() => {
+    if (!createGrade || !createSection || !createSubject) return [];
+
+    return validAssignments.filter((a) => {
+      const aGradeId = getAssignmentGradeId(a);
+      const aSecId = getAssignmentSectionId(a);
+      const aSubjId = getAssignmentSubjectId(a);
+      const aSubjName = getAssignmentSubjectName(a);
+
+      const matchesGrade = String(aGradeId) === String(createGrade);
+      const matchesSec = String(aSecId) === String(createSection);
+      const matchesSubj =
+        String(aSubjId) === String(createSubject) ||
+        String(a.id) === String(createSubject) ||
+        aSubjName === createSubject;
+
+      return matchesGrade && matchesSec && matchesSubj;
+    });
+  }, [
+    createGrade,
+    createSection,
+    createSubject,
+    validAssignments,
+    getAssignmentGradeId,
+    getAssignmentSectionId,
+    getAssignmentSubjectId,
+    getAssignmentSubjectName,
+  ]);
+
+  // Sync resolved teacher_assignment in cascade mode
+  useEffect(() => {
+    if (createMode !== "cascade") return;
+
+    if (!createGrade || !createSection || !createSubject) {
+      if (createForm.teacher_assignment) {
+        setCreateForm((prev) => ({ ...prev, teacher_assignment: "" }));
+      }
+      return;
+    }
+
+    if (matchedAssignmentsForSelection.length === 1) {
+      const singleId = matchedAssignmentsForSelection[0].id;
+      if (createForm.teacher_assignment !== singleId) {
+        setCreateForm((prev) => ({ ...prev, teacher_assignment: singleId }));
+      }
+    } else if (matchedAssignmentsForSelection.length > 1) {
+      const exists = matchedAssignmentsForSelection.some(
+        (a) => String(a.id) === String(createForm.teacher_assignment)
+      );
+      if (!exists) {
+        setCreateForm((prev) => ({
+          ...prev,
+          teacher_assignment: matchedAssignmentsForSelection[0].id,
+        }));
+      }
+    } else {
+      if (createForm.teacher_assignment) {
+        setCreateForm((prev) => ({ ...prev, teacher_assignment: "" }));
+      }
+    }
+  }, [
+    createMode,
+    createGrade,
+    createSection,
+    createSubject,
+    matchedAssignmentsForSelection,
+    createForm.teacher_assignment,
+  ]);
+
+  // Cascading change handlers
+  const handleGradeChangeForCreate = (gradeId) => {
+    setCreateGrade(gradeId);
+    setCreateSection("");
+    setCreateSubject("");
+    setCreateForm((prev) => ({ ...prev, teacher_assignment: "" }));
+  };
+
+  const handleSectionChangeForCreate = (sectionId) => {
+    setCreateSection(sectionId);
+    setCreateSubject("");
+    setCreateForm((prev) => ({ ...prev, teacher_assignment: "" }));
+  };
+
+  const handleSubjectChangeForCreate = (subjectId) => {
+    setCreateSubject(subjectId);
+    if (!createGrade || !createSection || !subjectId) {
+      setCreateForm((prev) => ({ ...prev, teacher_assignment: "" }));
+      return;
+    }
+
+    const matches = validAssignments.filter((a) => {
+      const aGradeId = getAssignmentGradeId(a);
+      const aSecId = getAssignmentSectionId(a);
+      const aSubjId = getAssignmentSubjectId(a);
+      const aSubjName = getAssignmentSubjectName(a);
+
+      return (
+        String(aGradeId) === String(createGrade) &&
+        String(aSecId) === String(createSection) &&
+        (String(aSubjId) === String(subjectId) ||
+          String(a.id) === String(subjectId) ||
+          aSubjName === subjectId)
+      );
+    });
+
+    if (matches.length > 0) {
+      setCreateForm((prev) => ({ ...prev, teacher_assignment: matches[0].id }));
+    } else {
+      setCreateForm((prev) => ({ ...prev, teacher_assignment: "" }));
+    }
+  };
+
+  // Direct assignment change handler
+  const handleDirectAssignmentChange = (assignId) => {
+    setCreateForm((prev) => ({ ...prev, teacher_assignment: assignId }));
+    if (assignId) {
+      const a = validAssignments.find((item) => String(item.id) === String(assignId));
+      if (a) {
+        const gId = getAssignmentGradeId(a);
+        const sId = getAssignmentSectionId(a);
+        const subId = getAssignmentSubjectId(a) || a.id;
+        if (gId) setCreateGrade(gId);
+        if (sId) setCreateSection(sId);
+        if (subId) setCreateSubject(subId);
+      }
+    }
+  };
+
+  // Memoized options for SearchableSelect (excludes ended assignments for teachers)
+  const assignmentOptions = useMemo(() => {
     return validAssignments.map((a) => {
       const subject = a.subject_display || a.subject_name || "مادة";
       const grade = a.grade_level_display || a.grade_level_name || "";
@@ -324,7 +851,7 @@ export function HomeworkManagement() {
         subtext: teacher ? `المعلم المكلف: ${teacher}` : "",
       };
     });
-  }, [assignments, isTeacher]);
+  }, [validAssignments]);
 
   const formatDateTime = (isoString) => {
     if (!isoString) return "";
@@ -434,6 +961,24 @@ export function HomeworkManagement() {
     setModalError(null);
 
     if (!createForm.teacher_assignment) {
+      if (createMode === "cascade") {
+        if (!createGrade) {
+          setModalError("يرجى اختيار الصف الدراسي أولاً.");
+          return;
+        }
+        if (!createSection) {
+          setModalError("يرجى اختيار الشعبة الدراسية.");
+          return;
+        }
+        if (!createSubject) {
+          setModalError("يرجى اختيار المادة المقررة.");
+          return;
+        }
+        setModalError(
+          "لم يتم العثور على تكليف تدريسي نشط لهذه المادة في هذه الشعبة. يرجى مراجعة إدارة المدرسة لإسناد التكليف."
+        );
+        return;
+      }
       setModalError("يرجى اختيار التكليف الأكاديمي (المادة والشعبة والمعلم).");
       return;
     }
@@ -571,26 +1116,50 @@ export function HomeworkManagement() {
 
   // Open Create Modal
   const handleOpenCreate = () => {
-    const validAssignments = isTeacher
-      ? assignments.filter((a) => !isEndDateExpired(a.end_date))
-      : assignments;
-
     if (isTeacher && assignments.length > 0 && validAssignments.length === 0) {
-      toast.warning("جميع التكليفات التدريسية الخاصة بك منتهية، لا يمكن إنشاء واجبات جديدة.");
+      toast.warning(
+        "جميع التكليفات التدريسية الخاصة بك منتهية، لا يمكن إنشاء واجبات جديدة."
+      );
       return;
     }
 
     setModalError(null);
-    setCreateForm({
-      teacher_assignment: validAssignments[0]?.id || "",
-      title: "",
-      description: "",
-      homework_date: new Date().toISOString().split("T")[0],
-      due_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
-        .toISOString()
-        .split("T")[0],
-      attachment: null,
-    });
+    setCreateMode("cascade");
+
+    if (isTeacher && validAssignments.length === 1) {
+      const single = validAssignments[0];
+      const gId = getAssignmentGradeId(single);
+      const sId = getAssignmentSectionId(single);
+      const subId = getAssignmentSubjectId(single) || single.id;
+      setCreateGrade(gId);
+      setCreateSection(sId);
+      setCreateSubject(subId);
+      setCreateForm({
+        teacher_assignment: single.id,
+        title: "",
+        description: "",
+        homework_date: new Date().toISOString().split("T")[0],
+        due_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .split("T")[0],
+        attachment: null,
+      });
+    } else {
+      setCreateGrade("");
+      setCreateSection("");
+      setCreateSubject("");
+      setCreateForm({
+        teacher_assignment: "",
+        title: "",
+        description: "",
+        homework_date: new Date().toISOString().split("T")[0],
+        due_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .split("T")[0],
+        attachment: null,
+      });
+    }
+
     setIsCreateModalOpen(true);
   };
 
@@ -1041,16 +1610,16 @@ export function HomeworkManagement() {
           <>
             {/* 1. Desktop Table View */}
             <div className="hidden lg:block overflow-x-auto">
-              <table className="w-full text-xs text-right min-w-[850px]">
-                <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-700 font-bold">
+              <table className="w-full text-xs text-right min-w-[1100px]">
+                <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-700 font-bold whitespace-nowrap">
                   <tr>
-                    <th className="p-3.5">عنوان الواجب والمادة</th>
-                    <th className="p-3.5">الصف والشعبة</th>
-                    <th className="p-3.5">المعلم المكلف</th>
-                    <th className="p-3.5">تاريخ النشر</th>
-                    <th className="p-3.5">موعد التسليم والحالة</th>
-                    <th className="p-3.5 text-center">المرفقات</th>
-                    <th className="p-3.5 text-center">الإجراءات</th>
+                    <th className="p-3.5 whitespace-nowrap">عنوان الواجب والمادة</th>
+                    <th className="p-3.5 whitespace-nowrap">الصف والشعبة</th>
+                    <th className="p-3.5 whitespace-nowrap">المعلم المكلف</th>
+                    <th className="p-3.5 whitespace-nowrap">تاريخ النشر</th>
+                    <th className="p-3.5 whitespace-nowrap">موعد التسليم والحالة</th>
+                    <th className="p-3.5 text-center whitespace-nowrap">المرفقات</th>
+                    <th className="p-3.5 text-center whitespace-nowrap">الإجراءات</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1063,12 +1632,12 @@ export function HomeworkManagement() {
                         className="hover:bg-slate-50/80 transition-colors"
                       >
                         {/* Title & Subject */}
-                        <td className="p-3.5">
+                        <td className="p-3.5 min-w-[220px]">
                           <div className="space-y-0.5">
                             <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
                               <span>{row.title}</span>
                             </div>
-                            <div className="flex items-center gap-1.5 text-teal-700 font-semibold text-[11px]">
+                            <div className="flex items-center gap-1.5 text-teal-700 font-semibold text-[11px] whitespace-nowrap">
                               <GraduationCap className="w-3.5 h-3.5 text-teal-600 shrink-0" />
                               <span>{row.subject_display || "المادة المقررة"}</span>
                               {row.academic_year_display && (
@@ -1086,8 +1655,8 @@ export function HomeworkManagement() {
                         </td>
 
                         {/* Grade & Section */}
-                        <td className="p-3.5 text-slate-700 font-medium">
-                          <div className="flex items-center gap-1.5">
+                        <td className="p-3.5 text-slate-700 font-medium whitespace-nowrap">
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
                             <Layers className="w-4 h-4 text-slate-400 shrink-0" />
                             <span>
                               {row.grade_level_display
@@ -1099,15 +1668,15 @@ export function HomeworkManagement() {
                         </td>
 
                         {/* Teacher */}
-                        <td className="p-3.5 text-slate-800 font-medium">
-                          <div className="flex items-center gap-2">
+                        <td className="p-3.5 text-slate-800 font-medium whitespace-nowrap">
+                          <div className="flex items-center gap-2 whitespace-nowrap">
                             <div className="w-7 h-7 rounded-full bg-teal-50 text-teal-700 flex items-center justify-center font-bold text-xs border border-teal-200 shrink-0">
                               <UserCheck className="w-3.5 h-3.5" />
                             </div>
                             <div>
-                              <div>{row.teacher_display || "المعلم"}</div>
+                              <div className="whitespace-nowrap font-semibold">{row.teacher_display || "المعلم"}</div>
                               {row.created_by_username && (
-                                <div className="text-[10px] text-slate-400">
+                                <div className="text-[10px] text-slate-400 whitespace-nowrap">
                                   بواسطة: @{row.created_by_username}
                                 </div>
                               )}
@@ -1116,23 +1685,23 @@ export function HomeworkManagement() {
                         </td>
 
                         {/* Homework Date */}
-                        <td className="p-3.5 text-slate-600">
-                          <div className="flex items-center gap-1.5 font-mono text-[11px]">
+                        <td className="p-3.5 text-slate-600 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5 font-mono text-[11px] whitespace-nowrap">
                             <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                             <span>{row.homework_date}</span>
                           </div>
                         </td>
 
                         {/* Due Date & Status Badge */}
-                        <td className="p-3.5">
+                        <td className="p-3.5 whitespace-nowrap">
                           <div className="space-y-1">
-                            <div className="flex items-center gap-1.5 font-mono font-bold text-slate-800 text-[11px]">
+                            <div className="flex items-center gap-1.5 font-mono font-bold text-slate-800 text-[11px] whitespace-nowrap">
                               <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                               <span>{row.due_date}</span>
                             </div>
                             {dueStatus && (
                               <span
-                                className={`text-[10px] px-2 py-0.5 rounded-md border font-semibold inline-flex items-center gap-1 ${dueStatus.color}`}
+                                className={`text-[10px] px-2 py-0.5 rounded-md border font-semibold inline-flex items-center gap-1 whitespace-nowrap ${dueStatus.color}`}
                               >
                                 <span
                                   className={`w-1.5 h-1.5 rounded-full ${dueStatus.dot}`}
@@ -1144,18 +1713,18 @@ export function HomeworkManagement() {
                         </td>
 
                         {/* Attachments */}
-                        <td className="p-3.5 text-center">
+                        <td className="p-3.5 text-center whitespace-nowrap">
                           {row.attachment ? (
                             <a
                               href={row.attachment}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors"
+                              className="inline-flex items-center gap-1 text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors whitespace-nowrap"
                               title="تحميل / معاينة المرفق"
                             >
-                              <Paperclip className="w-3 h-3" />
+                              <Paperclip className="w-3 h-3 shrink-0" />
                               <span>مرفق</span>
-                              <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                              <ExternalLink className="w-2.5 h-2.5 opacity-60 shrink-0" />
                             </a>
                           ) : (
                             <span className="text-slate-300 text-[11px]">-</span>
@@ -1163,11 +1732,11 @@ export function HomeworkManagement() {
                         </td>
 
                         {/* Actions */}
-                        <td className="p-3.5 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
+                        <td className="p-3.5 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
                             <button
                               onClick={() => handleOpenDetails(row)}
-                              className="p-1.5 text-slate-600 hover:text-teal-700 hover:bg-slate-100 rounded-lg transition-colors"
+                              className="p-1.5 text-slate-600 hover:text-teal-700 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap"
                               title="عرض التفاصيل الكاملة"
                             >
                               <Eye className="w-4 h-4" />
@@ -1175,7 +1744,7 @@ export function HomeworkManagement() {
 
                             {isTeacher && isAssignmentEnded(row.teacher_assignment, row) ? (
                               <span
-                                className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md font-semibold inline-flex items-center"
+                                className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md font-semibold inline-flex items-center whitespace-nowrap"
                                 title="التكليف التعليمي منتهٍ - الواجب للعرض فقط"
                               >
                                 تكليف منتهٍ
@@ -1185,7 +1754,7 @@ export function HomeworkManagement() {
                                 {canChangeHomework && (
                                   <button
                                     onClick={() => handleOpenEdit(row)}
-                                    className="p-1.5 text-slate-600 hover:text-blue-700 hover:bg-slate-100 rounded-lg transition-colors"
+                                    className="p-1.5 text-slate-600 hover:text-blue-700 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap"
                                     title="تعديل الواجب"
                                   >
                                     <Edit2 className="w-4 h-4" />
@@ -1195,7 +1764,7 @@ export function HomeworkManagement() {
                                 {canDeleteHomework && (
                                   <button
                                     onClick={() => handleOpenDelete(row)}
-                                    className="p-1.5 text-slate-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
+                                    className="p-1.5 text-slate-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors whitespace-nowrap"
                                     title="حذف الواجب"
                                   >
                                     <Trash2 className="w-4 h-4 text-rose-500" />
@@ -1368,7 +1937,8 @@ export function HomeworkManagement() {
       <Modal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        title="إضافة واجب مدرسي جديد (POST /homework/homeworks/)"
+        title="إضافة واجب مدرسي جديد"
+        maxWidth="max-w-2xl"
       >
         <form onSubmit={handleCreateHomework} className="space-y-4 text-right">
           {modalError && <Alert type="error">{modalError}</Alert>}
@@ -1377,66 +1947,210 @@ export function HomeworkManagement() {
           <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 text-xs font-semibold">
             <button
               type="button"
-              onClick={() => setUseManualUuid(false)}
+              onClick={() => setCreateMode("cascade")}
               className={`flex-1 py-1.5 px-3 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                !useManualUuid
+                createMode === "cascade"
                   ? "bg-white text-teal-700 shadow-sm font-bold"
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
               <Layers className="w-3.5 h-3.5" />
-              <span>اختيار التكليف من القائمة</span>
+              <span>اختيار منظم (الصف • الشعبة • المادة)</span>
             </button>
             <button
               type="button"
-              onClick={() => setUseManualUuid(true)}
+              onClick={() => setCreateMode("direct")}
               className={`flex-1 py-1.5 px-3 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                useManualUuid
+                createMode === "direct"
+                  ? "bg-white text-teal-700 shadow-sm font-bold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span>اختيار التكليف مباشرة</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCreateMode("manual")}
+              className={`flex-1 py-1.5 px-3 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                createMode === "manual"
                   ? "bg-white text-teal-700 shadow-sm font-bold"
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
               <Edit2 className="w-3.5 h-3.5" />
-              <span>إدخال UUID التكليف يدوياً</span>
+              <span>إدخال UUID يدوياً</span>
             </button>
           </div>
 
-          {/* 1. Teacher Assignment Selector */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              التكليف الأكاديمي (Teacher Assignment){" "}
-              <span className="text-red-500">*</span>
-            </label>
-
-            {useManualUuid ? (
-              <div className="space-y-1">
-                <input
-                  type="text"
-                  placeholder="أدخل UUID التكليف الأكاديمي (مثال: e9a165d3-3664-4f17-99ad-30bc1d6d0300)"
-                  value={createForm.teacher_assignment}
-                  onChange={(e) =>
-                    setCreateForm({
-                      ...createForm,
-                      teacher_assignment: e.target.value,
-                    })
-                  }
-                  className="w-full px-3 py-2 border rounded-xl text-xs font-mono focus:ring-2 focus:ring-teal-500 focus:outline-none bg-slate-50/50"
-                  required
-                />
-                <p className="text-[10px] text-slate-400">
-                  يجب أن يكون معرّف UUID صالح لتكليف تدريسي نشط.
-                </p>
+          {/* 1. Cascading Grade / Section / Subject Selectors (User Request) */}
+          {createMode === "cascade" && (
+            <div className="space-y-3 p-3.5 bg-slate-50/80 rounded-2xl border border-slate-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                  <GraduationCap className="w-4 h-4 text-teal-600" />
+                  <span>تحديد الصف والشعبة والمادة الدراسية</span>
+                </div>
+                <span className="text-[10px] text-teal-700 font-semibold bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
+                  خطوة 1 من 2
+                </span>
               </div>
-            ) : (
+
+              {/* 3 Inputs Grid: الصف، الشعبة، المادة */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {/* 1. الصف الدراسي */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    الصف الدراسي <span className="text-red-500">*</span>
+                  </label>
+                  <SearchableSelect
+                    options={createGradeOptions}
+                    value={createGrade}
+                    onChange={handleGradeChangeForCreate}
+                    placeholder="-- اختر الصف الدراسي --"
+                    searchPlaceholder="ابحث باسم الصف..."
+                    emptyMessage="لا يوجد صف مطابق للبحث"
+                    noOptionsMessage={
+                      createGradeOptions.length === 0
+                        ? "-- لا توجد صفوف مسجلة --"
+                        : "-- اختر الصف --"
+                    }
+                    required
+                  />
+                </div>
+
+                {/* 2. الشعبة الدراسية */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    الشعبة <span className="text-red-500">*</span>
+                  </label>
+                  <SearchableSelect
+                    options={createSectionOptions}
+                    value={createSection}
+                    onChange={handleSectionChangeForCreate}
+                    placeholder={
+                      !createGrade
+                        ? "-- اختر الصف أولاً --"
+                        : "-- اختر الشعبة --"
+                    }
+                    searchPlaceholder="ابحث بالشعبة..."
+                    emptyMessage="لا توجد شعبة مطابقة للبحث"
+                    noOptionsMessage={
+                      !createGrade
+                        ? "-- يرجى اختيار الصف أولاً --"
+                        : "-- لا توجد شعب لهذا الصف --"
+                    }
+                    disabled={!createGrade}
+                    required
+                  />
+                </div>
+
+                {/* 3. المادة المقررة */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    المادة المقررة <span className="text-red-500">*</span>
+                  </label>
+                  <SearchableSelect
+                    options={createSubjectOptions}
+                    value={createSubject}
+                    onChange={handleSubjectChangeForCreate}
+                    placeholder={
+                      !createGrade
+                        ? "-- اختر الصف أولاً --"
+                        : !createSection
+                        ? "-- اختر الشعبة أولاً --"
+                        : "-- اختر المادة المقررة --"
+                    }
+                    searchPlaceholder="ابحث بالمادة..."
+                    emptyMessage="لا توجد مادة مطابقة للبحث"
+                    noOptionsMessage={
+                      !createGrade || !createSection
+                        ? "-- اختر الصف والشعبة أولاً --"
+                        : "-- لا توجد مواد مقررة لهذه الشعبة --"
+                    }
+                    disabled={!createGrade || !createSection}
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Assignment Feedback Card */}
+              {createGrade && createSection && createSubject && (
+                <div className="pt-1">
+                  {matchedAssignmentsForSelection.length === 1 && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 flex items-center justify-between text-xs text-emerald-900">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <div>
+                          <span className="font-bold">التكليف الأكاديمي المعتمد:</span>{" "}
+                          <span>
+                            المعلم المكلف:{" "}
+                            <strong className="text-emerald-950 font-bold">
+                              {matchedAssignmentsForSelection[0].teacher_display ||
+                                matchedAssignmentsForSelection[0].teacher_name ||
+                                "معلم المادة"}
+                            </strong>
+                          </span>
+                        </div>
+                      </div>
+                      <span className="text-[10px] bg-white border border-emerald-300 text-emerald-700 px-2 py-0.5 rounded-md font-mono hidden sm:inline-block">
+                        نشط
+                      </span>
+                    </div>
+                  )}
+
+                  {matchedAssignmentsForSelection.length > 1 && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-2.5 space-y-2 text-xs text-amber-900">
+                      <div className="flex items-center gap-2 font-semibold">
+                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>يوجد أكثر من تكليف لهذه المادة، يرجى اختيار المعلم المسؤول:</span>
+                      </div>
+                      <select
+                        value={createForm.teacher_assignment}
+                        onChange={(e) =>
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            teacher_assignment: e.target.value,
+                          }))
+                        }
+                        className="w-full px-2.5 py-1.5 border border-amber-300 rounded-lg bg-white text-xs font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      >
+                        {matchedAssignmentsForSelection.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            المعلم: {a.teacher_display || a.teacher_name || "معلم"}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {matchedAssignmentsForSelection.length === 0 && (
+                    <div className="bg-rose-50 border border-rose-200 rounded-xl p-2.5 flex items-start gap-2 text-xs text-rose-800">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div>
+                        <div className="font-bold">لا يوجد تكليف تدريسي مسجل لهذا الاختيار</div>
+                        <p className="text-[11px] text-rose-600 mt-0.5">
+                          لم يتم ربط هذه المادة بمعلم لهذه الشعبة بعد. يمكنك إسناد التكليف من شاشة تكليفات المعلمين، أو التبديل إلى "اختيار التكليف مباشرة" أو "إدخال UUID يدوياً".
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Mode 2: Direct Single SearchableSelect */}
+          {createMode === "direct" && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                التكليف الأكاديمي (المادة - الصف والشعبة - المعلم){" "}
+                <span className="text-red-500">*</span>
+              </label>
               <SearchableSelect
                 options={assignmentOptions}
                 value={createForm.teacher_assignment}
-                onChange={(val) =>
-                  setCreateForm((prev) => ({
-                    ...prev,
-                    teacher_assignment: val,
-                  }))
-                }
+                onChange={handleDirectAssignmentChange}
                 placeholder="-- اختر التكليف الأكاديمي (اكتب للبحث السريع) --"
                 searchPlaceholder="اكتب اسم المادة أو الشعبة أو المعلم للبحث..."
                 emptyMessage="لا توجد تكليفات أكاديمية مطابقة للبحث"
@@ -1447,12 +2161,37 @@ export function HomeworkManagement() {
                 }
                 required
                 onManualSelect={() => {
-                  setUseManualUuid(true);
+                  setCreateMode("manual");
                   setCreateForm((prev) => ({ ...prev, teacher_assignment: "" }));
                 }}
               />
-            )}
-          </div>
+            </div>
+          )}
+
+          {/* Mode 3: Manual UUID input */}
+          {createMode === "manual" && (
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                معرّف UUID للتكليف الأكاديمي <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="أدخل UUID التكليف الأكاديمي (مثال: e9a165d3-3664-4f17-99ad-30bc1d6d0300)"
+                value={createForm.teacher_assignment}
+                onChange={(e) =>
+                  setCreateForm({
+                    ...createForm,
+                    teacher_assignment: e.target.value,
+                  })
+                }
+                className="w-full px-3 py-2 border rounded-xl text-xs font-mono focus:ring-2 focus:ring-teal-500 focus:outline-none bg-slate-50/50"
+                required
+              />
+              <p className="text-[10px] text-slate-400">
+                يجب أن يكون معرّف UUID صالح لتكليف تدريسي نشط.
+              </p>
+            </div>
+          )}
 
           {/* 2. Homework Title */}
           <div>

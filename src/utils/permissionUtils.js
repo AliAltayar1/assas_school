@@ -136,6 +136,7 @@ export const GRADES_PERMISSIONS = [
   "grades.change_studentscore",
   "grades.publish_grades",
   "grades.correct_published_grades",
+  "grades.publish_assessment_schedule",
 ];
 
 export const AUDIT_LOG_PERMISSIONS = [
@@ -321,6 +322,7 @@ export function usePermissions() {
   const canViewProfile = canViewStudentProfile(user, requesterRole, permissions);
   const canCorrectGrades = canCorrectPublishedGrades(user, requesterRole, permissions);
   const canImportStudents = canAccessStudentImport(user, requesterRole, permissions);
+  const canPublishSchedule = checkHasPermission("grades.publish_assessment_schedule");
 
   const role = normalizeRole(user?.role || requesterRole?.code);
   const isAccountantRole = role === "accountant";
@@ -333,6 +335,7 @@ export function usePermissions() {
     canManagePermissions: canManageUserPerms,
     canViewStudentProfile: canViewProfile,
     canCorrectPublishedGrades: canCorrectGrades,
+    canPublishAssessmentSchedule: canPublishSchedule,
     canImportStudents,
     isAccountant: isAccountantRole,
     isSuperuser,
@@ -510,6 +513,10 @@ export function canAccessGrades() {
 
 export function canPublishGrades() {
   return hasPermission("grades.publish_grades");
+}
+
+export function canPublishAssessmentSchedule() {
+  return hasPermission("grades.publish_assessment_schedule");
 }
 
 export function canCreateAssessmentForGrade() {

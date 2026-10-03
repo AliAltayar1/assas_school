@@ -38,6 +38,51 @@ import {
   Tag,
 } from "lucide-react";
 
+/**
+ * Helper to fetch all records across pages from a DRF paginated endpoint.
+ * Loops with page_size=1000 while next is present, guaranteeing all
+ * records are loaded without being truncated by the default 20-item pagination.
+ */
+async function fetchAllPaginated(fetchFn, baseParams = {}) {
+  let allResults = [];
+  let page = 1;
+  const pageSize = 1000;
+  let hasMore = true;
+
+  while (hasMore && page <= 50) {
+    try {
+      const res = await fetchFn({ ...baseParams, page, page_size: pageSize });
+      const { results, next, count } = extractPaginatedList(res);
+
+      if (Array.isArray(results) && results.length > 0) {
+        allResults = [...allResults, ...results];
+      }
+
+      if (!next || !results || results.length === 0 || (count && allResults.length >= count)) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+    } catch (err) {
+      console.error("Error in fetchAllPaginated:", err);
+      hasMore = false;
+    }
+  }
+
+  // Fallback: If page_size=1000 failed or returned empty, try standard fetch
+  if (allResults.length === 0) {
+    try {
+      const fallbackRes = await fetchFn(baseParams);
+      const { results } = extractPaginatedList(fallbackRes);
+      if (Array.isArray(results) && results.length > 0) {
+        allResults = results;
+      }
+    } catch (_) {}
+  }
+
+  return allResults;
+}
+
 export function BehaviorManagement() {
   const { user, requesterRole, permissions, hasPermission } = useAuthStore();
   const basePath = getBaseRouteForRole(user);
@@ -84,6 +129,9 @@ export function BehaviorManagement() {
   const [rawNotes, setRawNotes] = useState([]);
   const [enrollments, setEnrollments] = useState([]);
   const [students, setStudents] = useState([]);
+  const [sections, setSections] = useState([]);
+  const [gradeLevels, setGradeLevels] = useState([]);
+  const [isMetadataLoading, setIsMetadataLoading] = useState(false);
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -214,23 +262,137 @@ export function BehaviorManagement() {
     }
   };
 
-  // Fetch Dropdown Metadata (Enrollments & Students)
+  // Helper to format Grade Name with "الصف" prefix if not already present
+  const formatGradeName = useCallback((rawGrade) => {
+    if (!rawGrade) return "";
+    const trimmed = String(rawGrade).trim();
+    if (
+      trimmed.startsWith("الصف") ||
+      trimmed.startsWith("صف") ||
+      trimmed.startsWith("روضة") ||
+      trimmed.startsWith("رياض") ||
+      trimmed.startsWith("مرحلة")
+    ) {
+      return trimmed;
+    }
+    return `الصف ${trimmed}`;
+  }, []);
+
+  // Helper to resolve Grade and Section names from enrollment and academic metadata
+  const resolveGradeSection = useCallback(
+    (enr) => {
+      if (!enr) return { gradeName: "", sectionName: "" };
+
+      // 1. Find section entity if available in sections list
+      const secId =
+        typeof enr.section === "object"
+          ? enr.section?.id
+          : enr.section;
+
+      const matchingSec = sections.find((s) => String(s.id) === String(secId));
+
+      // 2. Resolve section name
+      let sectionName =
+        enr.section_display ||
+        enr.section_name ||
+        (typeof enr.section === "object" ? enr.section?.name : null) ||
+        matchingSec?.name ||
+        "";
+
+      // If sectionName looks like a raw UUID, ignore it
+      if (typeof sectionName === "string" && sectionName.length > 25 && sectionName.includes("-")) {
+        sectionName = matchingSec?.name || "";
+      }
+
+      // 3. Resolve grade name
+      let gradeName =
+        enr.grade_level_display ||
+        enr.grade_level_name ||
+        (typeof enr.grade_level === "object" ? enr.grade_level?.name : null) ||
+        matchingSec?.grade_level_name ||
+        matchingSec?.grade_level_display ||
+        (typeof matchingSec?.grade_level === "object" ? matchingSec.grade_level?.name : null) ||
+        "";
+
+      const gradeId =
+        (typeof enr.grade_level === "object" ? enr.grade_level?.id : enr.grade_level) ||
+        (typeof matchingSec?.grade_level === "object" ? matchingSec.grade_level?.id : matchingSec?.grade_level);
+
+      if (!gradeName && gradeId && gradeLevels.length > 0) {
+        const matchingGrade = gradeLevels.find((g) => String(g.id) === String(gradeId));
+        if (matchingGrade) {
+          gradeName = matchingGrade.name || matchingGrade.display_name || "";
+        }
+      }
+
+      // If gradeName looks like a raw UUID, ignore it
+      if (typeof gradeName === "string" && gradeName.length > 25 && gradeName.includes("-")) {
+        gradeName = "";
+      }
+
+      return {
+        gradeName: formatGradeName(gradeName),
+        sectionName: sectionName ? String(sectionName).trim() : "",
+      };
+    },
+    [sections, gradeLevels, formatGradeName]
+  );
+
+  // Helper to format combined Grade and Section string (e.g. "الصف الأول - الشعبة أ")
+  const formatGradeSection = useCallback((gradeName, sectionName) => {
+    const g = formatGradeName(gradeName);
+    const s = sectionName
+      ? String(sectionName).trim().startsWith("الشعبة") || String(sectionName).trim().startsWith("شعبة")
+        ? String(sectionName).trim()
+        : `الشعبة ${String(sectionName).trim()}`
+      : "";
+
+    if (g && s) {
+      return `${g} - ${s}`;
+    }
+    if (g) return g;
+    if (s) return s;
+    return "";
+  }, [formatGradeName]);
+
+  // Fetch Dropdown Metadata (All Enrollments, Students, Sections & Grade Levels)
   const fetchMetadata = useCallback(async () => {
+    setIsMetadataLoading(true);
     try {
-      const [enrollData, studentsData] = await Promise.all([
-        api.students?.getEnrollments ? api.students.getEnrollments().catch(() => null) : null,
-        api.students?.getStudents ? api.students.getStudents().catch(() => null) : null,
+      const [allEnrollments, allStudents, gradesRes, sectionsRes] = await Promise.all([
+        api.students?.getEnrollments
+          ? fetchAllPaginated(api.students.getEnrollments)
+          : Promise.resolve([]),
+        api.students?.getStudents
+          ? fetchAllPaginated(api.students.getStudents)
+          : Promise.resolve([]),
+        api.academics?.getGradeLevels
+          ? api.academics.getGradeLevels({ page_size: 200 }).catch(() => null)
+          : Promise.resolve([]),
+        api.academics?.getSections
+          ? api.academics.getSections({ page_size: 500 }).catch(() => null)
+          : Promise.resolve([]),
       ]);
 
-      if (enrollData) {
-        const { results } = extractPaginatedList(enrollData);
-        setEnrollments(results);
+      if (allEnrollments && allEnrollments.length > 0) {
+        setEnrollments(allEnrollments);
       }
-      if (studentsData) {
-        const { results } = extractPaginatedList(studentsData);
-        setStudents(results);
+      if (allStudents && allStudents.length > 0) {
+        setStudents(allStudents);
       }
-    } catch (_) {}
+      if (gradesRes) {
+        const { results } = extractPaginatedList(gradesRes);
+        setGradeLevels(results);
+      }
+      if (sectionsRes) {
+        const { results } = extractPaginatedList(sectionsRes);
+        setSections(results);
+      }
+    } catch (err) {
+      console.error("Failed to load metadata in BehaviorManagement:", err);
+    } finally {
+      setIsMetadataLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -238,121 +400,123 @@ export function BehaviorManagement() {
   }, [fetchMetadata]);
 
   // Helper label extractors for dropdowns
-  const getEnrollmentLabel = useCallback((enr, index) => {
-    if (!enr) return "";
-    const studentName =
-      enr.student_name ||
-      enr.student_display ||
-      (typeof enr.student === "object" ? enr.student?.full_name || enr.student?.name : null) ||
-      `طالب #${index + 1}`;
+  const getEnrollmentLabel = useCallback(
+    (enr, index) => {
+      if (!enr) return "";
+      const studentName =
+        enr.student_name ||
+        enr.student_display ||
+        (typeof enr.student === "object" ? enr.student?.full_name || enr.student?.name : null) ||
+        `طالب #${index + 1}`;
 
-    const gradeSection =
-      enr.section_display ||
-      enr.grade_level_display ||
-      (enr.section_name && enr.grade_level_name ? `${enr.grade_level_name} - ${enr.section_name}` : "") ||
-      "";
+      const { gradeName, sectionName } = resolveGradeSection(enr);
+      const gradeSectionText = formatGradeSection(gradeName, sectionName);
 
-    return gradeSection ? `${studentName} (${gradeSection})` : studentName;
-  }, []);
+      return gradeSectionText ? `${studentName} (${gradeSectionText})` : studentName;
+    },
+    [resolveGradeSection, formatGradeSection]
+  );
 
-  // Memoized options for SearchableSelect
+  // Memoized options for SearchableSelect (Sorted alphabetically for easy browsing)
   const enrollmentOptions = useMemo(() => {
-    return enrollments.map((enr, idx) => {
+    const list = enrollments.map((enr, idx) => {
       let studentName =
         enr.student_name ||
         enr.student_display ||
         (typeof enr.student === "object" ? enr.student?.full_name || enr.student?.name : null);
 
       if (!studentName && enr.student && students.length > 0) {
-        const matchSt = students.find((s) => String(s.id) === String(enr.student));
+        const sId = String(typeof enr.student === "object" ? enr.student?.id : enr.student);
+        const matchSt = students.find((s) => String(s.id) === sId);
         if (matchSt) {
           studentName = matchSt.full_name || `${matchSt.first_name || ""} ${matchSt.last_name || ""}`.trim();
         }
       }
       if (!studentName) studentName = `طالب #${idx + 1}`;
 
-      const gradeSection =
-        enr.section_display ||
-        enr.grade_level_display ||
-        (enr.section_name && enr.grade_level_name ? `${enr.grade_level_name} - ${enr.section_name}` : "") ||
-        "";
+      const { gradeName, sectionName } = resolveGradeSection(enr);
+      const gradeSectionText = formatGradeSection(gradeName, sectionName);
 
       return {
         value: enr.id,
         label: studentName,
-        subtext: gradeSection ? `الشعبة والصف: ${gradeSection}` : "",
+        subtext: gradeSectionText ? `الصف والشعبة: ${gradeSectionText}` : "",
       };
     });
-  }, [enrollments, students]);
+
+    return list.sort((a, b) => (a.label || "").localeCompare(b.label || "", "ar"));
+  }, [enrollments, students, resolveGradeSection, formatGradeSection]);
 
   // Helper to extract student and class info for a behavior note
   const getNoteStudentInfo = useCallback(
     (note) => {
       if (!note) return { studentName: "غير محدد", gradeSection: "" };
 
-      // 1. Direct properties on note
-      if (note.student_name) {
-        return {
-          studentName: note.student_name,
-          gradeSection: note.grade_section || note.section_display || "",
-        };
-      }
-      if (typeof note.student === "object" && note.student) {
-        return {
-          studentName: note.student.full_name || note.student.name || note.student_name || "طالب",
-          gradeSection: note.grade_section || "",
-        };
-      }
-      if (note.student_display) {
-        return {
-          studentName: note.student_display,
-          gradeSection: note.grade_section || "",
-        };
-      }
+      // 1. Lookup in loaded enrollments by enrollment UUID / ID
+      const enrollmentId =
+        typeof note.enrollment === "object" ? note.enrollment?.id : note.enrollment;
 
-      // 2. Lookup in loaded enrollments by enrollment UUID / ID
-      const enrollmentId = typeof note.enrollment === "object" ? note.enrollment?.id : note.enrollment;
-      if (enrollmentId && enrollments.length > 0) {
-        const matchEnr = enrollments.find(
-          (e) => String(e.id) === String(enrollmentId)
-        );
-        if (matchEnr) {
-          const studentName =
-            matchEnr.student_name ||
-            matchEnr.student_display ||
-            (typeof matchEnr.student === "object" ? matchEnr.student?.full_name || matchEnr.student?.name : null) ||
-            "طالب";
-          const gradeSection =
-            matchEnr.section_display ||
-            matchEnr.grade_level_display ||
-            (matchEnr.section_name && matchEnr.grade_level_name
-              ? `${matchEnr.grade_level_name} - ${matchEnr.section_name}`
-              : "") ||
-            "";
-          return { studentName, gradeSection };
-        }
-      }
+      const matchEnr =
+        enrollmentId && enrollments.length > 0
+          ? enrollments.find((e) => String(e.id) === String(enrollmentId))
+          : null;
 
-      // 3. Lookup in loaded students by student ID
-      const studentId = typeof note.student === "string" ? note.student : null;
-      if (studentId && students.length > 0) {
-        const matchStudent = students.find((s) => String(s.id) === String(studentId));
+      // 2. Resolve student name
+      let studentName =
+        note.student_name ||
+        note.student_display ||
+        (typeof note.student === "object" ? note.student?.full_name || note.student?.name : null) ||
+        matchEnr?.student_name ||
+        matchEnr?.student_display ||
+        (typeof matchEnr?.student === "object" ? matchEnr.student?.full_name || matchEnr.student?.name : null);
+
+      if (!studentName && (note.student || matchEnr?.student) && students.length > 0) {
+        const studentId = String(note.student?.id || note.student || matchEnr?.student?.id || matchEnr?.student);
+        const matchStudent = students.find((s) => String(s.id) === studentId);
         if (matchStudent) {
-          const studentName =
+          studentName =
             matchStudent.full_name ||
             `${matchStudent.first_name || ""} ${matchStudent.last_name || ""}`.trim() ||
             matchStudent.student_name ||
             "طالب";
-          return { studentName, gradeSection: "" };
         }
       }
 
-      return {
-        studentName: note.enrollment_display || (enrollmentId ? `قيد: ${String(enrollmentId).slice(0, 8)}...` : "طالب"),
-        gradeSection: "",
-      };
+      if (!studentName) {
+        studentName = note.enrollment_display || (enrollmentId ? `قيد: ${String(enrollmentId).slice(0, 8)}...` : "طالب");
+      }
+
+      // 3. Resolve grade and section
+      let gradeSection = "";
+
+      if (matchEnr) {
+        const { gradeName, sectionName } = resolveGradeSection(matchEnr);
+        gradeSection = formatGradeSection(gradeName, sectionName);
+      }
+
+      // If not resolved from enrollment, check note properties directly
+      if (!gradeSection) {
+        const noteGrade =
+          note.grade_level_display ||
+          note.grade_level_name ||
+          (typeof note.grade_level === "object" ? note.grade_level?.name : null) ||
+          "";
+        const noteSection =
+          note.section_display ||
+          note.section_name ||
+          (typeof note.section === "object" ? note.section?.name : null) ||
+          "";
+
+        if (noteGrade || noteSection) {
+          gradeSection = formatGradeSection(noteGrade, noteSection);
+        } else if (note.grade_section) {
+          gradeSection = note.grade_section;
+        }
+      }
+
+      return { studentName, gradeSection };
     },
-    [enrollments, students]
+    [enrollments, students, resolveGradeSection, formatGradeSection]
   );
 
   // Helper to format ISO date strings cleanly
@@ -568,6 +732,9 @@ export function BehaviorManagement() {
   // Open Create Modal
   const handleOpenCreate = () => {
     setModalError(null);
+    if (enrollments.length === 0) {
+      fetchMetadata();
+    }
     setCreateForm({
       enrollment: enrollments[0]?.id || "",
       note_type: "positive",
@@ -724,11 +891,14 @@ export function BehaviorManagement() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() =>
-              activeMainTab === "points"
-                ? fetchPoints(pointsPage)
-                : fetchNotes(currentPage)
-            }
+            onClick={() => {
+              fetchMetadata();
+              if (activeMainTab === "points") {
+                fetchPoints(pointsPage);
+              } else {
+                fetchNotes(currentPage);
+              }
+            }}
             disabled={activeMainTab === "points" ? pointsLoading : isLoading}
             title="تحديث القائمة"
             className="h-9 px-3"
@@ -1182,21 +1352,21 @@ export function BehaviorManagement() {
         ) : (
           <>
             {/* Desktop Table View */}
-            <div className="hidden lg:block overflow-x-auto">
-              <table className="w-full text-xs text-right min-w-[900px]">
-                <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-700 font-bold">
+            <div className="hidden lg:block overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="w-full text-xs text-right min-w-[1150px] divide-y divide-slate-200">
+                <thead className="bg-slate-50/90 border-b border-slate-200 text-slate-700 font-bold">
                   <tr>
-                    <th className="p-3.5">النوع</th>
-                    <th className="p-3.5">الطالب والشعبة</th>
-                    <th className="p-3.5">عنوان الملاحظة</th>
-                    <th className="p-3.5">تفاصيل الملاحظة</th>
-                    <th className="p-3.5">تاريخ الملاحظة</th>
-                    <th className="p-3.5">الموثق</th>
-                    <th className="p-3.5">تاريخ التوثيق</th>
-                    <th className="p-3.5 text-center">الإجراءات</th>
+                    <th className="py-3.5 px-4 w-24 text-center whitespace-nowrap">النوع</th>
+                    <th className="py-3.5 px-4 min-w-[220px] whitespace-nowrap">الطالب والشعبة</th>
+                    <th className="py-3.5 px-4 min-w-[180px] whitespace-nowrap">عنوان الملاحظة</th>
+                    <th className="py-3.5 px-4 min-w-[240px] max-w-sm">تفاصيل الملاحظة</th>
+                    <th className="py-3.5 px-4 w-32 whitespace-nowrap">تاريخ الملاحظة</th>
+                    <th className="py-3.5 px-4 w-32 whitespace-nowrap">الموثق</th>
+                    <th className="py-3.5 px-4 w-36 whitespace-nowrap">تاريخ التوثيق</th>
+                    <th className="py-3.5 px-4 w-24 text-center whitespace-nowrap">الإجراءات</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 bg-white">
                   {filteredNotes.map((row) => {
                     const studentInfo = getNoteStudentInfo(row);
                     return (
@@ -1205,7 +1375,7 @@ export function BehaviorManagement() {
                         className="hover:bg-slate-50/80 transition-colors"
                       >
                         {/* Note Type */}
-                        <td className="p-3.5">
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
                           {row.note_type === "positive" ? (
                             <span className="text-[11px] text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200 font-bold inline-flex items-center gap-1.5 whitespace-nowrap">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -1220,14 +1390,14 @@ export function BehaviorManagement() {
                         </td>
 
                         {/* Student Name & Section */}
-                        <td className="p-3.5">
-                          <div className="space-y-0.5">
-                            <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          <div className="space-y-1">
+                            <div className="font-bold text-slate-900 flex items-center gap-1.5 whitespace-nowrap">
                               <GraduationCap className="w-3.5 h-3.5 text-teal-600 shrink-0" />
-                              <span>{studentInfo.studentName}</span>
+                              <span className="whitespace-nowrap">{studentInfo.studentName}</span>
                             </div>
                             {studentInfo.gradeSection && (
-                              <span className="text-[11px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md inline-block">
+                              <span className="text-[11px] text-slate-600 bg-slate-100 border border-slate-200/80 px-2 py-0.5 rounded-md inline-block whitespace-nowrap font-medium">
                                 {studentInfo.gradeSection}
                               </span>
                             )}
@@ -1235,53 +1405,55 @@ export function BehaviorManagement() {
                         </td>
 
                         {/* Title */}
-                        <td className="p-3.5 font-bold text-slate-900">
-                          <div className="flex items-center gap-1.5">
+                        <td className="py-3.5 px-4 font-bold text-slate-900 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
                             {row.note_type === "positive" ? (
                               <Sparkles className="w-4 h-4 text-emerald-500 shrink-0" />
                             ) : (
                               <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
                             )}
-                            <span>{row.title}</span>
+                            <span className="whitespace-nowrap">{row.title}</span>
                           </div>
                         </td>
 
                         {/* Description preview */}
-                        <td className="p-3.5 text-slate-600 max-w-xs truncate">
-                          {row.description || (
-                            <span className="text-slate-400 italic">لا توجد تفاصيل إضافية</span>
-                          )}
+                        <td className="py-3.5 px-4 text-slate-600 min-w-[240px] max-w-sm" title={row.description || ""}>
+                          <p className="line-clamp-2 leading-relaxed text-xs">
+                            {row.description || (
+                              <span className="text-slate-400 italic">لا توجد تفاصيل إضافية</span>
+                            )}
+                          </p>
                         </td>
 
                         {/* Occurred On */}
-                        <td className="p-3.5 font-mono text-slate-700 whitespace-nowrap">
-                          <div className="flex items-center gap-1">
-                            <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                        <td className="py-3.5 px-4 font-mono text-slate-700 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
+                            <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                             <span>{row.occurred_on}</span>
                           </div>
                         </td>
 
                         {/* Created By */}
-                        <td className="p-3.5 text-slate-700 whitespace-nowrap">
-                          <div className="flex items-center gap-1.5">
-                            <User className="w-3.5 h-3.5 text-slate-400" />
-                            <span className="font-semibold">
+                        <td className="py-3.5 px-4 text-slate-700 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
+                            <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="font-semibold whitespace-nowrap">
                               {row.created_by_username || row.created_by || "مستخدم"}
                             </span>
                           </div>
                         </td>
 
                         {/* Timestamps */}
-                        <td className="p-3.5 text-slate-500 text-[11px] whitespace-nowrap">
-                          <div className="flex items-center gap-1">
-                            <Clock className="w-3 h-3 text-slate-400" />
+                        <td className="py-3.5 px-4 text-slate-500 text-[11px] whitespace-nowrap font-mono">
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
+                            <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                             <span>{formatDateTime(row.created_at) || "-"}</span>
                           </div>
                         </td>
 
                         {/* Actions */}
-                        <td className="p-3.5 text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-1.5">
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1">
                             <button
                               onClick={() => handleOpenDetails(row)}
                               className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
@@ -1355,12 +1527,12 @@ export function BehaviorManagement() {
                     <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/60 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <GraduationCap className="w-4 h-4 text-teal-600" />
-                        <span className="font-bold text-xs text-slate-900">
+                        <span className="font-bold text-xs text-slate-900 whitespace-nowrap">
                           {studentInfo.studentName}
                         </span>
                       </div>
                       {studentInfo.gradeSection && (
-                        <span className="text-[10px] text-slate-600 bg-white border border-slate-200 px-2 py-0.5 rounded-md font-medium">
+                        <span className="text-[10px] text-slate-600 bg-white border border-slate-200 px-2 py-0.5 rounded-md font-medium whitespace-nowrap">
                           {studentInfo.gradeSection}
                         </span>
                       )}
@@ -1537,12 +1709,12 @@ export function BehaviorManagement() {
       {/* Table of Points */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-right text-xs">
+          <table className="w-full text-right text-xs min-w-[1050px]">
             <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
               <tr>
-                <th className="py-3 px-4">الطالب والشعبة</th>
+                <th className="py-3 px-4 min-w-[220px] whitespace-nowrap">الطالب والشعبة</th>
                 <th className="py-3 px-4 w-28 whitespace-nowrap">النقاط</th>
-                <th className="py-3 px-4">سبب منح النقاط</th>
+                <th className="py-3 px-4 min-w-[240px]">سبب منح النقاط</th>
                 <th className="py-3 px-4 w-28 whitespace-nowrap">تاريخ المنح</th>
                 <th className="py-3 px-4 w-36 whitespace-nowrap">أضيف بواسطة</th>
                 <th className="py-3 px-4 w-36 whitespace-nowrap">تاريخ التسجيل</th>
@@ -1591,7 +1763,7 @@ export function BehaviorManagement() {
 
                   return (
                     <tr key={pt.id} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="py-3 px-4">
+                      <td className="py-3 px-4 min-w-[220px] whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           <div className="w-7 h-7 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center font-bold text-xs shrink-0">
                             {studentName[0] || "ط"}
@@ -1600,18 +1772,30 @@ export function BehaviorManagement() {
                             {studentId && canViewProfile ? (
                               <Link
                                 to={`${basePath}/students/${studentId}/profile`}
-                                className="font-bold text-slate-900 hover:text-teal-700 transition-colors"
+                                className="font-bold text-slate-900 hover:text-teal-700 transition-colors whitespace-nowrap"
                               >
                                 {studentName}
                               </Link>
                             ) : (
-                              <span className="font-bold text-slate-900">{studentName}</span>
+                              <span className="font-bold text-slate-900 whitespace-nowrap">{studentName}</span>
                             )}
-                            {pt.section_name && (
-                              <span className="text-[11px] text-slate-400 block">
-                                {pt.grade_level_name ? `${pt.grade_level_name} - ` : ""}{pt.section_name}
-                              </span>
-                            )}
+                            {(() => {
+                              const matchEnr = pt.enrollment
+                                ? enrollments.find((e) => String(e.id) === String(pt.enrollment))
+                                : null;
+                              let gradeSec = "";
+                              if (matchEnr) {
+                                const { gradeName, sectionName } = resolveGradeSection(matchEnr);
+                                gradeSec = formatGradeSection(gradeName, sectionName);
+                              } else if (pt.grade_level_name || pt.section_name) {
+                                gradeSec = formatGradeSection(pt.grade_level_name, pt.section_name);
+                              }
+                              return gradeSec ? (
+                                <span className="text-[11px] text-slate-600 bg-slate-100 border border-slate-200/80 px-2 py-0.5 rounded-md inline-block whitespace-nowrap font-medium mt-1">
+                                  {gradeSec}
+                                </span>
+                              ) : null;
+                            })()}
                           </div>
                         </div>
                       </td>
@@ -1620,8 +1804,8 @@ export function BehaviorManagement() {
                           +{pt.points} نقطة
                         </span>
                       </td>
-                      <td className="py-3 px-4">
-                        <p className="font-semibold text-slate-800 leading-relaxed">
+                      <td className="py-3 px-4 min-w-[240px] max-w-md" title={pt.note}>
+                        <p className="font-semibold text-slate-800 leading-relaxed line-clamp-2">
                           {pt.note}
                         </p>
                       </td>
@@ -1771,11 +1955,13 @@ export function BehaviorManagement() {
                   setCreateForm((prev) => ({ ...prev, enrollment: val }))
                 }
                 placeholder="-- اختر الطالب / القيد المدرسي (اكتب للبحث) --"
-                searchPlaceholder="اكتب اسم الطالب للبحث..."
+                searchPlaceholder="اكتب اسم الطالب أو الصف أو الشعبة للبحث..."
                 emptyMessage="لا يوجد طلاب مطابقين للبحث"
                 noOptionsMessage={
-                  enrollments.length === 0
-                    ? "-- جاري تحميل قائمة القيود أو لا توجد قيود مسجلة --"
+                  isMetadataLoading
+                    ? "-- جاري تحميل جميع قيود الطلاب والصفوف... --"
+                    : enrollments.length === 0
+                    ? "-- لا توجد قيود طلاب مسجلة --"
                     : "-- لا توجد خيارات متاحة --"
                 }
                 required

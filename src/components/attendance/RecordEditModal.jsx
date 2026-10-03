@@ -13,6 +13,7 @@ import {
   DEPARTURE_METHODS,
   COMMON_ABSENCE_REASONS,
   DEFAULT_ARRIVAL_TIME,
+  formatArabicDate,
 } from './attendanceConstants';
 import { User, Clock, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 
@@ -131,9 +132,16 @@ export function RecordEditModal({ isOpen, onClose, record, onSuccess }) {
           <div className="w-10 h-10 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center font-bold text-sm shrink-0">
             <User className="w-5 h-5" />
           </div>
-          <div>
-            <h4 className="font-bold text-slate-800 text-sm">{record.student_display}</h4>
-            <p className="text-xs text-slate-500">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="font-bold text-slate-800 text-sm truncate">{record.student_display}</h4>
+              {(record.attendance_date || record.created_at) && (
+                <span className="text-[11px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded font-semibold border border-teal-200 shrink-0">
+                  {formatArabicDate(record.attendance_date || record.created_at)}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
               الحالة الحالية: <span className="font-semibold text-slate-700">{record.status_display}</span>
             </p>
           </div>

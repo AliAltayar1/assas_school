@@ -90,10 +90,30 @@ export function getTodayDateStr() {
   return `${year}-${month}-${day}`;
 }
 
+export function formatDateOnly(dateStr) {
+  if (!dateStr) return '';
+  try {
+    if (typeof dateStr === 'string' && dateStr.includes('T')) {
+      return dateStr.split('T')[0];
+    }
+    if (dateStr instanceof Date) {
+      const year = dateStr.getFullYear();
+      const month = String(dateStr.getMonth() + 1).padStart(2, '0');
+      const day = String(dateStr.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    return String(dateStr);
+  } catch (_) {
+    return String(dateStr);
+  }
+}
+
 export function formatArabicDate(dateStr) {
   if (!dateStr) return '';
   try {
-    const d = new Date(dateStr + 'T00:00:00');
+    const d = typeof dateStr === 'string' && dateStr.includes('T')
+      ? new Date(dateStr)
+      : new Date(dateStr + 'T00:00:00');
     if (isNaN(d.getTime())) return dateStr;
     const dayName = new Intl.DateTimeFormat('ar-SY', { weekday: 'long' }).format(d);
     const formatted = new Intl.DateTimeFormat('ar-SY', {
@@ -110,7 +130,9 @@ export function formatArabicDate(dateStr) {
 export function isWeekendDate(dateStr) {
   if (!dateStr) return false;
   try {
-    const d = new Date(dateStr + 'T00:00:00');
+    const d = typeof dateStr === 'string' && dateStr.includes('T')
+      ? new Date(dateStr)
+      : new Date(dateStr + 'T00:00:00');
     const day = d.getDay(); // 0: Sunday, 5: Friday, 6: Saturday
     return day === 5 || day === 6;
   } catch (_) {

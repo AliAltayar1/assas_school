@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../api";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -49,6 +49,7 @@ import {
   FileText,
   FileSpreadsheet,
   Download,
+  X,
 } from "lucide-react";
 import { exportStudentsToExcel } from "../../utils/studentExportUtils";
 
@@ -125,8 +126,6 @@ export function StudentManagement() {
   const [enrollmentYearFilter, setEnrollmentYearFilter] = useState("");
   const [enrollmentPage, setEnrollmentPage] = useState(1);
   const [enrollmentTotal, setEnrollmentTotal] = useState(0);
-  const [enrollmentHasNext, setEnrollmentHasNext] = useState(false);
-  const [enrollmentHasPrev, setEnrollmentHasPrev] = useState(false);
 
   const [isEnrollmentModalOpen, setIsEnrollmentModalOpen] = useState(false);
   const [editingEnrollment, setEditingEnrollment] = useState(null);
@@ -144,8 +143,6 @@ export function StudentManagement() {
   const [guardianSearch, setGuardianSearch] = useState("");
   const [guardianPage, setGuardianPage] = useState(1);
   const [guardianTotal, setGuardianTotal] = useState(0);
-  const [guardianHasNext, setGuardianHasNext] = useState(false);
-  const [guardianHasPrev, setGuardianHasPrev] = useState(false);
 
   const [isGuardianModalOpen, setIsGuardianModalOpen] = useState(false);
 
@@ -300,71 +297,250 @@ export function StudentManagement() {
   }, [fetchStudents, activeTab, studentPage]);
 
   // =========================================================
+  // ARABIC NORMALIZATION HELPER FOR ROBUST SEARCH
+  // =========================================================
+  const normalizeSearchText = (text) => {
+    if (!text || typeof text !== "string") return "";
+    return text
+      .toLowerCase()
+      .trim()
+      .replace(/[\u064B-\u065F\u0670]/g, "") // Diacritics (tashkeel)
+      .replace(/[إأآٱ]/g, "ا") // Alef normalization
+      .replace(/ى/g, "ي") // Ya / Alef Maqsura
+      .replace(/ة/g, "ه") // Ta marbuta normalization
+      .replace(/[\u0640]/g, ""); // Tatweel
+  };
+
+  // =========================================================
   // 2. FETCH ENROLLMENTS
   // =========================================================
-  const fetchEnrollments = useCallback(
-    async (page = enrollmentPage) => {
-      setEnrollmentsLoading(true);
-      setEnrollmentsError(null);
+  const fetchEnrollments = useCallback(async () => {
+    setEnrollmentsLoading(true);
+    setEnrollmentsError(null);
+    try {
+      const baseParams = {};
+      if (enrollmentYearFilter) baseParams.academic_year = enrollmentYearFilter;
+
+      let allResults = [];
+      let totalCount = 0;
+
       try {
-        const params = { page };
-        if (enrollmentSearch.trim()) params.search = enrollmentSearch.trim();
-        if (enrollmentYearFilter) params.academic_year = enrollmentYearFilter;
+        const res = await api.students.getEnrollments({
+          ...baseParams,
+          page: 1,
+          page_size: 1000,
+        });
+        const paginated = extractPaginatedList(res);
+        allResults = paginated.results || [];
+        totalCount = paginated.count || allResults.length;
 
-        const res = await api.students.getEnrollments(params);
-        const { results, count, next, previous } = extractPaginatedList(res);
-
-        setEnrollments(results);
-        setEnrollmentTotal(count);
-        setEnrollmentHasNext(Boolean(next));
-        setEnrollmentHasPrev(Boolean(previous));
-      } catch (err) {
-        setEnrollmentsError(parseApiError(err, "تعذر تحميل قائمة تسجيلات الطلاب."));
-      } finally {
-        setEnrollmentsLoading(false);
+        let nextPage = 2;
+        let hasMore = Boolean(paginated.next) && allResults.length < totalCount;
+        while (hasMore && nextPage <= 25) {
+          try {
+            const nextRes = await api.students.getEnrollments({
+              ...baseParams,
+              page: nextPage,
+              page_size: 1000,
+            });
+            const nextPaginated = extractPaginatedList(nextRes);
+            if (Array.isArray(nextPaginated.results) && nextPaginated.results.length > 0) {
+              allResults = [...allResults, ...nextPaginated.results];
+            }
+            if (!nextPaginated.next || allResults.length >= (nextPaginated.count || totalCount)) {
+              hasMore = false;
+            } else {
+              nextPage++;
+            }
+          } catch (_) {
+            hasMore = false;
+          }
+        }
+      } catch (_) {
+        const fallbackRes = await api.students.getEnrollments(baseParams);
+        const fallbackData = extractPaginatedList(fallbackRes);
+        allResults = fallbackData.results || [];
+        totalCount = fallbackData.count || allResults.length;
       }
-    },
-    [enrollmentPage, enrollmentSearch, enrollmentYearFilter]
-  );
+
+      setEnrollments(allResults);
+      setEnrollmentTotal(totalCount);
+    } catch (err) {
+      setEnrollmentsError(parseApiError(err, "تعذر تحميل قائمة تسجيلات الطلاب."));
+    } finally {
+      setEnrollmentsLoading(false);
+    }
+  }, [enrollmentYearFilter]);
 
   useEffect(() => {
     if (activeTab === "enrollments") {
-      fetchEnrollments(enrollmentPage);
+      fetchEnrollments();
     }
-  }, [fetchEnrollments, activeTab, enrollmentPage]);
+  }, [fetchEnrollments, activeTab]);
+
+  // Client-side filtering for Enrollments & Transfers (instant, robust, supports Arabic normalization)
+  const filteredEnrollments = useMemo(() => {
+    if (!enrollmentSearch.trim()) return enrollments;
+
+    const rawTerm = enrollmentSearch.trim().toLowerCase();
+    const normTerm = normalizeSearchText(enrollmentSearch);
+
+    return enrollments.filter((enr) => {
+      const studentName = String(
+        enr.student_display ||
+        enr.student?.full_name ||
+        (typeof enr.student === "object"
+          ? `${enr.student?.first_name || ""} ${enr.student?.last_name || ""}`.trim()
+          : enr.student) ||
+        ""
+      );
+      const sectionName = String(
+        enr.section_display ||
+        enr.section?.name ||
+        (typeof enr.section === "string" ? enr.section : "") ||
+        ""
+      );
+      const gradeLevel = String(
+        enr.grade_level_display ||
+        enr.grade_level?.name ||
+        ""
+      );
+      const academicYear = String(
+        enr.academic_year_display ||
+        enr.academic_year?.name ||
+        ""
+      );
+      const enrollmentDate = String(enr.enrollment_date || "");
+
+      if (
+        studentName.toLowerCase().includes(rawTerm) ||
+        sectionName.toLowerCase().includes(rawTerm) ||
+        gradeLevel.toLowerCase().includes(rawTerm) ||
+        academicYear.toLowerCase().includes(rawTerm) ||
+        enrollmentDate.toLowerCase().includes(rawTerm)
+      ) {
+        return true;
+      }
+
+      const normStudent = normalizeSearchText(studentName);
+      const normSection = normalizeSearchText(sectionName);
+      const normGrade = normalizeSearchText(gradeLevel);
+      const normYear = normalizeSearchText(academicYear);
+
+      return (
+        normStudent.includes(normTerm) ||
+        normSection.includes(normTerm) ||
+        normGrade.includes(normTerm) ||
+        normYear.includes(normTerm)
+      );
+    });
+  }, [enrollments, enrollmentSearch]);
+
+  const ENROLLMENT_PAGE_SIZE = 20;
+  const enrollmentTotalPages = Math.ceil(filteredEnrollments.length / ENROLLMENT_PAGE_SIZE) || 1;
+  const paginatedEnrollments = useMemo(() => {
+    const start = (enrollmentPage - 1) * ENROLLMENT_PAGE_SIZE;
+    return filteredEnrollments.slice(start, start + ENROLLMENT_PAGE_SIZE);
+  }, [filteredEnrollments, enrollmentPage]);
 
   // =========================================================
   // 3. FETCH GUARDIAN LINKS
   // =========================================================
-  const fetchGuardianLinks = useCallback(
-    async (page = guardianPage) => {
-      setGuardiansLoading(true);
-      setGuardiansError(null);
+  const fetchGuardianLinks = useCallback(async () => {
+    setGuardiansLoading(true);
+    setGuardiansError(null);
+    try {
+      let allResults = [];
+      let totalCount = 0;
+
       try {
-        const params = { page };
-        if (guardianSearch.trim()) params.search = guardianSearch.trim();
+        const res = await api.students.getGuardianLinks({ page: 1, page_size: 1000 });
+        const paginated = extractPaginatedList(res);
+        allResults = paginated.results || [];
+        totalCount = paginated.count || allResults.length;
 
-        const res = await api.students.getGuardianLinks(params);
-        const { results, count, next, previous } = extractPaginatedList(res);
-
-        setGuardianLinks(results);
-        setGuardianTotal(count);
-        setGuardianHasNext(Boolean(next));
-        setGuardianHasPrev(Boolean(previous));
-      } catch (err) {
-        setGuardiansError(parseApiError(err, "تعذر تحميل روابط أولياء الأمور."));
-      } finally {
-        setGuardiansLoading(false);
+        let nextPage = 2;
+        let hasMore = Boolean(paginated.next) && allResults.length < totalCount;
+        while (hasMore && nextPage <= 25) {
+          try {
+            const nextRes = await api.students.getGuardianLinks({ page: nextPage, page_size: 1000 });
+            const nextPaginated = extractPaginatedList(nextRes);
+            if (Array.isArray(nextPaginated.results) && nextPaginated.results.length > 0) {
+              allResults = [...allResults, ...nextPaginated.results];
+            }
+            if (!nextPaginated.next || allResults.length >= (nextPaginated.count || totalCount)) {
+              hasMore = false;
+            } else {
+              nextPage++;
+            }
+          } catch (_) {
+            hasMore = false;
+          }
+        }
+      } catch (_) {
+        const fallbackRes = await api.students.getGuardianLinks({ page: 1 });
+        const fallbackData = extractPaginatedList(fallbackRes);
+        allResults = fallbackData.results || [];
+        totalCount = fallbackData.count || allResults.length;
       }
-    },
-    [guardianPage, guardianSearch]
-  );
+
+      setGuardianLinks(allResults);
+      setGuardianTotal(totalCount);
+    } catch (err) {
+      setGuardiansError(parseApiError(err, "تعذر تحميل روابط أولياء الأمور."));
+    } finally {
+      setGuardiansLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (activeTab === "guardians") {
-      fetchGuardianLinks(guardianPage);
+      fetchGuardianLinks();
     }
-  }, [fetchGuardianLinks, activeTab, guardianPage]);
+  }, [fetchGuardianLinks, activeTab]);
+
+  // Client-side filtering for Guardian Links
+  const filteredGuardianLinks = useMemo(() => {
+    if (!guardianSearch.trim()) return guardianLinks;
+
+    const rawTerm = guardianSearch.trim().toLowerCase();
+    const normTerm = normalizeSearchText(guardianSearch);
+
+    return guardianLinks.filter((link) => {
+      const guardianName = String(link.guardian_display || link.guardian_username || "");
+      const guardianUsername = String(link.guardian_username || "");
+      const studentName = String(link.student_display || link.student || "");
+      const relationship = String(link.relationship || "");
+
+      if (
+        guardianName.toLowerCase().includes(rawTerm) ||
+        guardianUsername.toLowerCase().includes(rawTerm) ||
+        studentName.toLowerCase().includes(rawTerm) ||
+        relationship.toLowerCase().includes(rawTerm)
+      ) {
+        return true;
+      }
+
+      const normGuardian = normalizeSearchText(guardianName);
+      const normUsername = normalizeSearchText(guardianUsername);
+      const normStudent = normalizeSearchText(studentName);
+      const normRel = normalizeSearchText(relationship);
+
+      return (
+        normGuardian.includes(normTerm) ||
+        normUsername.includes(normTerm) ||
+        normStudent.includes(normTerm) ||
+        normRel.includes(normTerm)
+      );
+    });
+  }, [guardianLinks, guardianSearch]);
+
+  const GUARDIAN_PAGE_SIZE = 20;
+  const guardianTotalPages = Math.ceil(filteredGuardianLinks.length / GUARDIAN_PAGE_SIZE) || 1;
+  const paginatedGuardianLinks = useMemo(() => {
+    const start = (guardianPage - 1) * GUARDIAN_PAGE_SIZE;
+    return filteredGuardianLinks.slice(start, start + GUARDIAN_PAGE_SIZE);
+  }, [filteredGuardianLinks, guardianPage]);
 
   // =========================================================
   // STUDENT HANDLERS (Create, Edit, Delete, Deactivate, Activate)
@@ -471,20 +647,20 @@ export function StudentManagement() {
       toast.success(getApiSuccessMessage(res, "تم تسجيل الطالب في الشعبة بنجاح."));
     }
     setEditingEnrollment(null);
-    fetchEnrollments(1);
+    fetchEnrollments();
   };
 
   const handleTransferSubmit = async (enrollmentId, newSectionId) => {
     const res = await api.students.transferEnrollment(enrollmentId, newSectionId);
     toast.success(getApiSuccessMessage(res, "تم نقل الطالب إلى الشعبة الجديدة بنجاح."));
-    fetchEnrollments(enrollmentPage);
+    fetchEnrollments();
     return res;
   };
 
   const handleCorrectPlacementSubmit = async (enrollmentId, payload) => {
     const res = await api.students.correctPlacement(enrollmentId, payload);
     toast.success(getApiSuccessMessage(res, "تم تصحيح شعبة تسجيل الطالب بنجاح."));
-    fetchEnrollments(enrollmentPage);
+    fetchEnrollments();
     return res;
   };
 
@@ -502,7 +678,7 @@ export function StudentManagement() {
           const res = await api.students.deleteEnrollment(enrollment.id);
           toast.success(getApiSuccessMessage(res, "تم حذف التسجيل الدراسي بنجاح."));
           setConfirmModalConfig((prev) => ({ ...prev, isOpen: false, isLoading: false }));
-          fetchEnrollments(enrollmentPage);
+          fetchEnrollments();
         } catch (err) {
           setConfirmModalConfig((prev) => ({ ...prev, isOpen: false, isLoading: false }));
           const errorCode = getApiErrorCode(err);
@@ -524,7 +700,7 @@ export function StudentManagement() {
   const handleGuardianLinkSubmit = async (formData) => {
     const res = await api.students.createGuardianLink(formData);
     toast.success(getApiSuccessMessage(res, "تم ربط ولي الأمر بالطالب بنجاح."));
-    fetchGuardianLinks(1);
+    fetchGuardianLinks();
   };
 
   const handleDeleteGuardianLink = (link) => {
@@ -541,7 +717,7 @@ export function StudentManagement() {
           const res = await api.students.deleteGuardianLink(link.id);
           toast.success(getApiSuccessMessage(res, "تم حذف رابط ولي الأمر بالطالب بنجاح."));
           setConfirmModalConfig((prev) => ({ ...prev, isOpen: false, isLoading: false }));
-          fetchGuardianLinks(guardianPage);
+          fetchGuardianLinks();
         } catch (err) {
           setConfirmModalConfig((prev) => ({ ...prev, isLoading: false }));
           toast.error(parseApiError(err, "فشل حذف رابط ولي الأمر."));
@@ -579,8 +755,8 @@ export function StudentManagement() {
             size="sm"
             onClick={() => {
               if (activeTab === "students") fetchStudents(studentPage);
-              if (activeTab === "enrollments") fetchEnrollments(enrollmentPage);
-              if (activeTab === "guardians") fetchGuardianLinks(guardianPage);
+              if (activeTab === "enrollments") fetchEnrollments();
+              if (activeTab === "guardians") fetchGuardianLinks();
             }}
             title="تحديث البيانات"
           >
@@ -728,8 +904,21 @@ export function StudentManagement() {
                     setStudentSearch(e.target.value);
                     setStudentPage(1);
                   }}
-                  className="w-full pr-8 pl-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  className="w-full pr-8 pl-8 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
+                {studentSearch && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStudentSearch("");
+                      setStudentPage(1);
+                    }}
+                    className="absolute left-2.5 top-2.5 text-slate-400 hover:text-slate-600 p-0.5 rounded-full"
+                    title="مسح البحث"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
 
               <select
@@ -924,14 +1113,27 @@ export function StudentManagement() {
                 <Search className="w-3.5 h-3.5 absolute right-3 top-3 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="البحث باسم الطالب أو الشعبة..."
+                  placeholder="البحث باسم الطالب أو الشعبة أو الصف..."
                   value={enrollmentSearch}
                   onChange={(e) => {
                     setEnrollmentSearch(e.target.value);
                     setEnrollmentPage(1);
                   }}
-                  className="w-full pr-8 pl-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  className="w-full pr-8 pl-8 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
+                {enrollmentSearch && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEnrollmentSearch("");
+                      setEnrollmentPage(1);
+                    }}
+                    className="absolute left-2.5 top-2.5 text-slate-400 hover:text-slate-600 p-0.5 rounded-full"
+                    title="مسح البحث"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
 
               <select
@@ -960,9 +1162,11 @@ export function StudentManagement() {
               <div className="w-6 h-6 border-2 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
               <p className="text-xs">جاري تحميل تسجيلات الطلاب...</p>
             </div>
-          ) : enrollments.length === 0 ? (
+          ) : filteredEnrollments.length === 0 ? (
             <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed text-slate-500 text-xs">
-              لا توجد تسجيلات طلاب مطابقة للشروط.
+              {enrollmentSearch.trim()
+                ? "لا توجد تسجيلات طلاب مطابقة لمعايير البحث."
+                : "لا توجد تسجيلات طلاب مسجلة حالياً."}
             </div>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-slate-200">
@@ -980,7 +1184,7 @@ export function StudentManagement() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 bg-white">
-                  {enrollments.map((enr) => (
+                  {paginatedEnrollments.map((enr) => (
                     <tr key={enr.id} className="hover:bg-slate-50">
                       <td className="py-3 px-4 font-bold text-slate-900">
                         <div className="flex items-center gap-2">
@@ -1084,11 +1288,11 @@ export function StudentManagement() {
 
           <Pagination
             currentPage={enrollmentPage}
-            totalCount={enrollmentTotal}
-            pageSize={20}
+            totalCount={filteredEnrollments.length}
+            pageSize={ENROLLMENT_PAGE_SIZE}
             onPageChange={(p) => setEnrollmentPage(p)}
-            hasNext={enrollmentHasNext}
-            hasPrevious={enrollmentHasPrev}
+            hasNext={enrollmentPage < enrollmentTotalPages}
+            hasPrevious={enrollmentPage > 1}
           />
         </div>
       )}
@@ -1110,8 +1314,21 @@ export function StudentManagement() {
                   setGuardianSearch(e.target.value);
                   setGuardianPage(1);
                 }}
-                className="w-full pr-8 pl-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+                className="w-full pr-8 pl-8 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
+              {guardianSearch && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGuardianSearch("");
+                    setGuardianPage(1);
+                  }}
+                  className="absolute left-2.5 top-2.5 text-slate-400 hover:text-slate-600 p-0.5 rounded-full"
+                  title="مسح البحث"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
 
@@ -1123,9 +1340,11 @@ export function StudentManagement() {
               <div className="w-6 h-6 border-2 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
               <p className="text-xs">جاري تحميل روابط أولياء الأمور...</p>
             </div>
-          ) : guardianLinks.length === 0 ? (
+          ) : filteredGuardianLinks.length === 0 ? (
             <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed text-slate-500 text-xs">
-              لا توجد روابط مسجلة بين أولياء الأمور والطلاب حالياً.
+              {guardianSearch.trim()
+                ? "لا توجد روابط أولياء أمور مطابقة لمعايير البحث."
+                : "لا توجد روابط مسجلة بين أولياء الأمور والطلاب حالياً."}
             </div>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-slate-200">
@@ -1141,7 +1360,7 @@ export function StudentManagement() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 bg-white">
-                  {guardianLinks.map((link) => (
+                  {paginatedGuardianLinks.map((link) => (
                     <tr key={link.id} className="hover:bg-slate-50">
                       <td className="py-3 px-4 font-bold text-slate-900">
                         {link.guardian_display || link.guardian_username || "-"}
@@ -1184,11 +1403,11 @@ export function StudentManagement() {
 
           <Pagination
             currentPage={guardianPage}
-            totalCount={guardianTotal}
-            pageSize={20}
+            totalCount={filteredGuardianLinks.length}
+            pageSize={GUARDIAN_PAGE_SIZE}
             onPageChange={(p) => setGuardianPage(p)}
-            hasNext={guardianHasNext}
-            hasPrevious={guardianHasPrev}
+            hasNext={guardianPage < guardianTotalPages}
+            hasPrevious={guardianPage > 1}
           />
         </div>
       )}

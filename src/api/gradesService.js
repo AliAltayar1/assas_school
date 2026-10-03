@@ -101,7 +101,7 @@ export const gradesService = {
   },
 
   // ==========================================
-  // 5. PUBLISHING (SECTION & GRADE LEVEL)
+  // 5. PUBLISHING (SECTION & GRADE LEVEL RESULTS)
   // ==========================================
 
   // POST /grades/assessments/publish-section/
@@ -122,6 +122,32 @@ export const gradesService = {
     const res = await axiosInstance.post("/grades/assessments/publish-grade/", {
       grade_level: gradeLevelId,
       term: termId,
+    });
+    return res.data;
+  },
+
+  // ==========================================
+  // 5.1 ASSESSMENT SCHEDULE PUBLISHING
+  // ==========================================
+
+  // POST /grades/assessments/publish-schedule/
+  // Publishes exam schedule for a specific section (makes exam visible to parents in mobile app)
+  // Body: { assessment: assessmentUuid, section: sectionUuid }
+  publishSchedule: async (assessmentId, sectionId) => {
+    const res = await axiosInstance.post("/grades/assessments/publish-schedule/", {
+      assessment: assessmentId,
+      section: sectionId,
+    });
+    return res.data;
+  },
+
+  // POST /grades/assessments/unpublish-schedule/
+  // Unpublishes exam schedule for a specific section (hides exam from parents mobile app)
+  // Body: { assessment: assessmentUuid, section: sectionUuid }
+  unpublishSchedule: async (assessmentId, sectionId) => {
+    const res = await axiosInstance.post("/grades/assessments/unpublish-schedule/", {
+      assessment: assessmentId,
+      section: sectionId,
     });
     return res.data;
   },

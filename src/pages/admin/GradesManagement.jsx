@@ -14,6 +14,9 @@ import {
   Search,
   CheckCircle2,
   Calendar,
+  CalendarCheck,
+  CalendarX,
+  Undo2,
   Layers,
   Edit2,
   Trash2,
@@ -55,6 +58,8 @@ export function GradesManagement() {
     hasPermission("grades.change_studentscore") || isSuperuser;
   const canPublish =
     hasPermission("grades.publish_grades") || isSuperuser;
+  const canPublishSchedule =
+    hasPermission("grades.publish_assessment_schedule") || isSuperuser;
   const canCorrectPublished =
     canCorrectPublishedGrades(user, requesterRole, permissions);
   const hasGeneralAccess =
@@ -67,6 +72,7 @@ export function GradesManagement() {
       "grades.change_studentscore",
       "grades.publish_grades",
       "grades.correct_published_grades",
+      "grades.publish_assessment_schedule",
     ]) || isSuperuser;
 
   // Academics Structure Data
@@ -95,6 +101,7 @@ export function GradesManagement() {
   const [selectedSection, setSelectedSection] = useState("");
   const [selectedGradeSubject, setSelectedGradeSubject] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("");
+  const [selectedScheduleStatus, setSelectedScheduleStatus] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [searchInput, setSearchInput] = useState("");
@@ -111,6 +118,13 @@ export function GradesManagement() {
   const [modalSubmitting, setModalSubmitting] = useState(false);
   const [modalError, setModalError] = useState(null);
 
+  // Schedule Publish & Unpublish State
+  const [actionLoadingKey, setActionLoadingKey] = useState(null);
+  const [isUnpublishModalOpen, setIsUnpublishModalOpen] = useState(false);
+  const [unpublishTarget, setUnpublishTarget] = useState(null); // { assessment, section }
+  const [isUnpublishing, setIsUnpublishing] = useState(false);
+  const [unpublishError, setUnpublishError] = useState(null);
+
   // Score Sheet State
   const [isScoreSheetOpen, setIsScoreSheetOpen] = useState(false);
   const [activeScoreSection, setActiveScoreSection] = useState({
@@ -118,6 +132,8 @@ export function GradesManagement() {
     name: "",
   });
   const [activeScoreSectionPublished, setActiveScoreSectionPublished] =
+    useState(false);
+  const [activeScoreSectionSchedulePublished, setActiveScoreSectionSchedulePublished] =
     useState(false);
   const canEditCurrentScores = activeScoreSectionPublished
     ? canCorrectPublished
@@ -131,6 +147,8 @@ export function GradesManagement() {
   // Publishing Modals
   const [isPublishSectionModalOpen, setIsPublishSectionModalOpen] =
     useState(false);
+  const [publishSectionGradeLevelId, setPublishSectionGradeLevelId] =
+    useState("");
   const [publishSectionId, setPublishSectionId] = useState("");
   const [publishSectionTermId, setPublishSectionTermId] = useState("");
   const [isPublishGradeModalOpen, setIsPublishGradeModalOpen] = useState(false);
@@ -244,6 +262,7 @@ export function GradesManagement() {
         section: selectedSection || undefined,
         grade_subject: selectedGradeSubject || undefined,
         status: selectedStatus || undefined,
+        schedule_status: selectedScheduleStatus || undefined,
         assessment_date_from: dateFrom || undefined,
         assessment_date_to: dateTo || undefined,
         search: debouncedSearch || undefined,
@@ -291,6 +310,7 @@ export function GradesManagement() {
     selectedSection,
     selectedGradeSubject,
     selectedStatus,
+    selectedScheduleStatus,
     dateFrom,
     dateTo,
     debouncedSearch,
@@ -308,27 +328,56 @@ export function GradesManagement() {
     return terms.filter((t) => t.academic_year === selectedYear);
   }, [terms, selectedYear]);
 
-  const availableSections = useMemo(() => {
-    const targetGrade = formData.grade_level || selectedGradeLevel;
-    if (!targetGrade) return sections;
-    return sections.filter((s) => s.grade_level === targetGrade);
-  }, [sections, formData.grade_level, selectedGradeLevel]);
+  // Sections filtered for the page filter bar
+  const filterSections = useMemo(() => {
+    if (!selectedGradeLevel) return sections;
+    return sections.filter((s) => s.grade_level === selectedGradeLevel);
+  }, [sections, selectedGradeLevel]);
 
-  const availableGradeSubjects = useMemo(() => {
-    const targetGrade = formData.grade_level || selectedGradeLevel;
-    if (!targetGrade) return gradeSubjects;
-    return gradeSubjects.filter((gs) => gs.grade_level === targetGrade);
-  }, [gradeSubjects, formData.grade_level, selectedGradeLevel]);
+  // Sections for Create Assessment Modal (dependent strictly on formData.grade_level)
+  const modalSections = useMemo(() => {
+    if (!formData.grade_level) return [];
+    return sections.filter((s) => s.grade_level === formData.grade_level);
+  }, [sections, formData.grade_level]);
+
+  // Grade Subjects for Create Assessment Modal (dependent strictly on formData.grade_level)
+  const modalGradeSubjects = useMemo(() => {
+    if (!formData.grade_level) return [];
+    return gradeSubjects.filter((gs) => gs.grade_level === formData.grade_level);
+  }, [gradeSubjects, formData.grade_level]);
+
+  // Sections for Publish Section Modal (dependent strictly on publishSectionGradeLevelId)
+  const publishSectionsForModal = useMemo(() => {
+    if (!publishSectionGradeLevelId) return [];
+    return sections.filter((s) => s.grade_level === publishSectionGradeLevelId);
+  }, [sections, publishSectionGradeLevelId]);
 
   // Open Create Modal
   const handleOpenCreateModal = (mode = "single") => {
     setCreateMode(mode);
     setModalError(null);
-    const initialGrade = selectedGradeLevel || gradeLevels[0]?.id || "";
+    const initialGrade = selectedGradeLevel || "";
+    const matchingSection =
+      selectedSection &&
+      sections.some(
+        (s) => s.id === selectedSection && (!initialGrade || s.grade_level === initialGrade)
+      )
+        ? selectedSection
+        : "";
+    const matchingSubject =
+      selectedGradeSubject &&
+      gradeSubjects.some(
+        (gs) =>
+          gs.id === selectedGradeSubject &&
+          (!initialGrade || gs.grade_level === initialGrade)
+      )
+        ? selectedGradeSubject
+        : "";
+
     setFormData({
       grade_level: initialGrade,
-      grade_subject: selectedGradeSubject || "",
-      section: selectedSection || sections[0]?.id || "",
+      grade_subject: matchingSubject,
+      section: matchingSection,
       term: selectedTerm || terms[0]?.id || "",
       title: "",
       max_score: "20.00",
@@ -343,6 +392,14 @@ export function GradesManagement() {
     e.preventDefault();
     setModalError(null);
 
+    if (!formData.grade_level) {
+      setModalError("يرجى اختيار الصف الدراسي أولاً.");
+      return;
+    }
+    if (createMode === "single" && !formData.section) {
+      setModalError("يرجى تحديد الشعبة الدراسية للتقييم.");
+      return;
+    }
     if (!formData.grade_subject) {
       setModalError("يرجى اختيار المادة المقررة.");
       return;
@@ -357,10 +414,6 @@ export function GradesManagement() {
     }
     if (!formData.max_score || parseFloat(formData.max_score) <= 0) {
       setModalError("يرجى إدخال درجة قصوى صحيحة أكبر من الصفر.");
-      return;
-    }
-    if (createMode === "single" && !formData.section) {
-      setModalError("يرجى تحديد الشعبة الدراسية للتقييم.");
       return;
     }
 
@@ -473,16 +526,21 @@ export function GradesManagement() {
 
   // Open Score Sheet for a specific Section
   const handleOpenScoreSheet = async (assessment, sec) => {
-    const sectionUuid = sec.section || sec.id;
+    const sectionUuid = sec.section || sec.section_id || sec.id;
     const sectionName = sec.name || "الشعبة";
     const initialPublished =
       sec.status === "published" ||
       sec.is_published === true ||
       assessment.status === "published";
+    const initialSchedulePublished =
+      sec.schedule_status === "published" ||
+      sec.is_schedule_published === true ||
+      assessment.schedule_status === "published";
 
     setScoreSheetAssessment(assessment);
     setActiveScoreSection({ id: sectionUuid, name: sectionName });
     setActiveScoreSectionPublished(Boolean(initialPublished));
+    setActiveScoreSectionSchedulePublished(Boolean(initialSchedulePublished));
     setIsScoreSheetOpen(true);
     setIsScoreSheetLoading(true);
     setScoreSheetError(null);
@@ -492,13 +550,22 @@ export function GradesManagement() {
       // GET /grades/assessments/{ASSESSMENT_UUID}/scores/?section={SECTION_UUID}
       const res = await api.grades.getScores(assessment.id, sectionUuid);
 
-      // Check published status from backend response
+      // Check results published status from backend response
       if (
         res?.data?.section?.status === "published" ||
         res?.data?.status === "published" ||
         res?.data?.is_published
       ) {
         setActiveScoreSectionPublished(true);
+      }
+
+      // Check schedule published status from backend response
+      if (
+        res?.data?.section?.schedule_status === "published" ||
+        res?.data?.schedule_status === "published" ||
+        res?.data?.is_schedule_published
+      ) {
+        setActiveScoreSectionSchedulePublished(true);
       }
 
       // Handle raw records from response: data.records
@@ -743,6 +810,107 @@ export function GradesManagement() {
     }
   };
 
+  // ==========================================
+  // Schedule Publishing Handlers (موعد الامتحان)
+  // ==========================================
+
+  // Publish Schedule for a single section
+  const handlePublishSchedule = async (assessment, sec) => {
+    const sectionUuid = sec.section || sec.section_id || sec.id;
+    const loadingKey = `publish-schedule-${assessment.id}-${sectionUuid}`;
+    setActionLoadingKey(loadingKey);
+
+    try {
+      await api.grades.publishSchedule(assessment.id, sectionUuid);
+      toast.success(
+        `تم نشر موعد الامتحان (${assessment.title}) لشعبة (${sec.name || "الشعبة"}) بنجاح، وأصبح ظاهراً لأولياء الأمور في تطبيق الموبايل.`
+      );
+      await fetchAssessments();
+      if (isScoreSheetOpen && activeScoreSection.id === sectionUuid) {
+        setActiveScoreSectionSchedulePublished(true);
+      }
+    } catch (err) {
+      const parsed = parseApiError(err, "فشل في نشر موعد الامتحان للشعبة.");
+      toast.error(parsed);
+    } finally {
+      setActionLoadingKey(null);
+    }
+  };
+
+  // Publish Schedule for all sections of an assessment
+  const handlePublishScheduleAllSections = async (assessment) => {
+    const sectionsToPublish = (assessment.sections || []).filter(
+      (s) => s.schedule_status !== "published" && !s.is_schedule_published
+    );
+    if (sectionsToPublish.length === 0) {
+      toast.info("موعد هذا الامتحان منشور بالفعل لكافة الشعب المرتبطة.");
+      return;
+    }
+
+    const loadingKey = `publish-all-schedule-${assessment.id}`;
+    setActionLoadingKey(loadingKey);
+
+    let successCount = 0;
+    let errors = [];
+
+    for (const sec of sectionsToPublish) {
+      const sectionUuid = sec.section || sec.section_id || sec.id;
+      try {
+        await api.grades.publishSchedule(assessment.id, sectionUuid);
+        successCount++;
+      } catch (err) {
+        errors.push(`${sec.name || "شعبة"}: ${parseApiError(err)}`);
+      }
+    }
+
+    if (successCount > 0) {
+      toast.success(
+        `تم نشر موعد الامتحان لـ (${successCount}) شعبة بنجاح، وأصبح متاحاً للأهالي في تطبيق الموبايل.`
+      );
+      await fetchAssessments();
+    }
+    if (errors.length > 0) {
+      toast.error(`تعذر نشر الموعد لبعض الشعب:\n${errors.join("\n")}`);
+    }
+    setActionLoadingKey(null);
+  };
+
+  // Open Unpublish Schedule Confirmation Modal
+  const handleRequestUnpublishSchedule = (assessment, sec) => {
+    setUnpublishTarget({ assessment, section: sec });
+    setUnpublishError(null);
+    setIsUnpublishModalOpen(true);
+  };
+
+  // Confirm Unpublish Schedule
+  const handleConfirmUnpublishSchedule = async () => {
+    if (!unpublishTarget) return;
+    const { assessment, section: sec } = unpublishTarget;
+    const sectionUuid = sec.section || sec.section_id || sec.id;
+
+    setIsUnpublishing(true);
+    setUnpublishError(null);
+
+    try {
+      await api.grades.unpublishSchedule(assessment.id, sectionUuid);
+      toast.success(
+        `تم إلغاء نشر موعد الامتحان (${assessment.title}) لشعبة (${sec.name || "الشعبة"}) بنجاح، وتحوّل إلى مسودة.`
+      );
+      setIsUnpublishModalOpen(false);
+      setUnpublishTarget(null);
+      await fetchAssessments();
+      if (isScoreSheetOpen && activeScoreSection.id === sectionUuid) {
+        setActiveScoreSectionSchedulePublished(false);
+      }
+    } catch (err) {
+      const parsed = parseApiError(err, "فشل في إلغاء نشر موعد الامتحان.");
+      setUnpublishError(parsed);
+      toast.error(parsed);
+    } finally {
+      setIsUnpublishing(false);
+    }
+  };
+
   // Open Student Results Breakdown
   const handleOpenStudentResults = async (enrollmentId, studentName) => {
     setSelectedStudentName(studentName);
@@ -824,14 +992,30 @@ export function GradesManagement() {
             <div className="flex items-center gap-2">
               <Button
                 onClick={() => {
-                  setPublishSectionId(selectedSection || sections[0]?.id || "");
+                  const initialGrade =
+                    selectedGradeLevel ||
+                    (selectedSection
+                      ? sections.find((s) => s.id === selectedSection)?.grade_level
+                      : "") ||
+                    gradeLevels[0]?.id ||
+                    "";
+                  setPublishSectionGradeLevelId(initialGrade);
+                  const matchingSections = sections.filter(
+                    (s) => s.grade_level === initialGrade
+                  );
+                  setPublishSectionId(
+                    matchingSections.some((s) => s.id === selectedSection)
+                      ? selectedSection
+                      : matchingSections[0]?.id || ""
+                  );
                   setPublishSectionTermId(selectedTerm || terms[0]?.id || "");
                   setIsPublishSectionModalOpen(true);
                 }}
                 className="bg-emerald-600 text-white hover:bg-emerald-500 font-bold px-3.5 py-2.5 rounded-xl text-xs sm:text-sm flex items-center gap-1.5 shadow-sm"
+                title="نشر نتائج وعلامات الشعبة للطلاب وأولياء الأمور (تختلف عن نشر موعد الامتحان)"
               >
                 <Send className="w-3.5 h-3.5" />
-                <span>نشر شعبة</span>
+                <span>نشر نتائج شعبة</span>
               </Button>
 
               <Button
@@ -843,9 +1027,10 @@ export function GradesManagement() {
                   setIsPublishGradeModalOpen(true);
                 }}
                 className="bg-amber-600 text-white hover:bg-amber-500 font-bold px-3.5 py-2.5 rounded-xl text-xs sm:text-sm flex items-center gap-1.5 shadow-sm"
+                title="نشر نتائج وعلامات كافة شعب الصف للطلاب وأولياء الأمور"
               >
                 <Send className="w-3.5 h-3.5" />
-                <span>نشر صف</span>
+                <span>نشر نتائج صف</span>
               </Button>
             </div>
           )}
@@ -949,9 +1134,9 @@ export function GradesManagement() {
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-teal-500"
             >
               <option value="">كافة الشعب</option>
-              {availableSections.map((sec) => (
+              {filterSections.map((sec) => (
                 <option key={sec.id} value={sec.id}>
-                  {sec.name} ({sec.grade_level_display})
+                  {selectedGradeLevel ? sec.name : `${sec.name} (${sec.grade_level_display})`}
                 </option>
               ))}
             </select>
@@ -979,7 +1164,8 @@ export function GradesManagement() {
             )}
           </div>
 
-          <div className="w-full sm:w-44">
+          {/* Result Status Filter */}
+          <div className="w-full sm:w-40">
             <select
               value={selectedStatus}
               onChange={(e) => {
@@ -987,10 +1173,28 @@ export function GradesManagement() {
                 setCurrentPage(1);
               }}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-teal-500"
+              title="تصفية حسب حالة نتائج ودرجات الامتحان"
             >
-              <option value="">جميع الحالات</option>
-              <option value="draft">مسودة (Draft)</option>
-              <option value="published">منشور (Published)</option>
+              <option value="">حالة النتائج (الكل)</option>
+              <option value="draft">النتائج: مسودة</option>
+              <option value="published">النتائج: منشورة</option>
+            </select>
+          </div>
+
+          {/* Schedule Status Filter */}
+          <div className="w-full sm:w-44">
+            <select
+              value={selectedScheduleStatus}
+              onChange={(e) => {
+                setSelectedScheduleStatus(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-teal-500"
+              title="تصفية حسب حالة موعد الامتحان في تطبيق الأهالي"
+            >
+              <option value="">حالة الموعد (الكل)</option>
+              <option value="draft">الموعد: مسودة</option>
+              <option value="published">الموعد: منشور للأهالي</option>
             </select>
           </div>
 
@@ -1015,6 +1219,7 @@ export function GradesManagement() {
             selectedGradeLevel ||
             selectedSection ||
             selectedStatus ||
+            selectedScheduleStatus ||
             searchInput ||
             dateFrom ||
             dateTo) && (
@@ -1027,6 +1232,7 @@ export function GradesManagement() {
                 setSelectedSection("");
                 setSelectedGradeSubject("");
                 setSelectedStatus("");
+                setSelectedScheduleStatus("");
                 setDateFrom("");
                 setDateTo("");
                 setSearchInput("");
@@ -1143,6 +1349,14 @@ export function GradesManagement() {
               const allPublished =
                 assessmentSections.length > 0 &&
                 assessmentSections.every((s) => s.status === "published");
+              const hasAnySchedulePublished = assessmentSections.some(
+                (s) => s.schedule_status === "published" || s.is_schedule_published,
+              );
+              const allSchedulePublished =
+                assessmentSections.length > 0 &&
+                assessmentSections.every(
+                  (s) => s.schedule_status === "published" || s.is_schedule_published,
+                );
               const isFutureDate =
                 assessment.assessment_date &&
                 assessment.assessment_date >
@@ -1169,9 +1383,9 @@ export function GradesManagement() {
                           {isFutureDate && (
                             <span
                               className="px-2 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-black rounded-lg"
-                              title="التقييمات المستقبلية لا يمكن نشرها حتى يحين موعدها أو يتم تعديل تاريخها لتاريخ اليوم"
+                              title="التقييمات المستقبلية لا يمكن نشر نتائجها حتى يحين موعدها، ولكن يمكن نشر موعدها مباشرة ليظهر لأولياء الأمور"
                             >
-                              ⏳ مستقبلي
+                              ⏳ موعد مستقبلي
                             </span>
                           )}
                         </div>
@@ -1206,9 +1420,9 @@ export function GradesManagement() {
                     </div>
                   </div>
 
-                  {/* Middle Row: Sections & Direct Evaluate Buttons */}
+                  {/* Middle Row: Sections & Independent Actions */}
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5">
-                    <div className="flex items-center justify-between text-xs font-black text-slate-700">
+                    <div className="flex items-center justify-between text-xs font-black text-slate-700 flex-wrap gap-2">
                       <span className="flex items-center gap-1.5">
                         <Users className="w-4 h-4 text-teal-700" />
                         <span>
@@ -1216,98 +1430,231 @@ export function GradesManagement() {
                         </span>
                       </span>
 
-                      {hasAnyPublished ? (
-                        <span className="text-emerald-700 font-extrabold text-[11px] flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                          <CheckCircle2 className="w-3 h-3" />
-                          {allPublished ? "منشور بالكامل" : "نشر جزئي"}
-                        </span>
-                      ) : (
-                        <span className="text-amber-800 font-bold text-[11px] flex items-center gap-1 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                          <Clock className="w-3 h-3 text-amber-600" />
-                          مسودة
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {/* Overall Schedule Status Summary */}
+                        {allSchedulePublished ? (
+                          <span className="text-blue-800 font-extrabold text-[11px] flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                            <CalendarCheck className="w-3 h-3 text-blue-600" />
+                            الموعد: منشور
+                          </span>
+                        ) : hasAnySchedulePublished ? (
+                          <span className="text-cyan-800 font-extrabold text-[11px] flex items-center gap-1 bg-cyan-50 px-2 py-0.5 rounded border border-cyan-200">
+                            <CalendarCheck className="w-3 h-3 text-cyan-600" />
+                            الموعد: نشر جزئي
+                          </span>
+                        ) : (
+                          <span className="text-slate-600 font-bold text-[11px] flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                            <Calendar className="w-3 h-3 text-slate-400" />
+                            الموعد: مسودة
+                          </span>
+                        )}
+
+                        {/* Overall Results Status Summary */}
+                        {hasAnyPublished ? (
+                          <span className="text-emerald-700 font-extrabold text-[11px] flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                            <CheckCircle2 className="w-3 h-3" />
+                            {allPublished ? "النتائج: منشورة" : "النتائج: نشر جزئي"}
+                          </span>
+                        ) : (
+                          <span className="text-amber-800 font-bold text-[11px] flex items-center gap-1 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                            <Clock className="w-3 h-3 text-amber-600" />
+                            النتائج: مسودة
+                          </span>
+                        )}
+
+                        {/* Batch Publish Schedule Button for multi-section exams */}
+                        {canPublishSchedule && assessmentSections.length > 1 && !allSchedulePublished && (
+                          <button
+                            type="button"
+                            onClick={() => handlePublishScheduleAllSections(assessment)}
+                            disabled={actionLoadingKey === `publish-all-schedule-${assessment.id}`}
+                            className="text-[10px] font-black text-blue-700 hover:text-blue-900 bg-blue-100/80 hover:bg-blue-200 border border-blue-300 px-2 py-0.5 rounded-lg flex items-center gap-1 transition-colors shadow-2xs"
+                            title="نشر موعد الامتحان لكافة شعب هذا التقييم دفعة واحدة"
+                          >
+                            {actionLoadingKey === `publish-all-schedule-${assessment.id}` ? (
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <CalendarCheck className="w-3 h-3" />
+                            )}
+                            <span>نشر الموعد للجميع</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {assessmentSections.length > 0 ? (
-                      <div className="space-y-2">
+                      <div className="space-y-2.5">
                         {assessmentSections.map((sec, idx) => {
+                          const sectionUuid = sec.section || sec.section_id || sec.id;
                           const isSecPublished = sec.status === "published";
+                          const isSchedulePublished =
+                            sec.schedule_status === "published" ||
+                            Boolean(sec.is_schedule_published);
+                          const isScheduleLoading =
+                            actionLoadingKey === `publish-schedule-${assessment.id}-${sectionUuid}` ||
+                            actionLoadingKey === `publish-all-schedule-${assessment.id}`;
 
                           return (
                             <div
                               key={sec.id || idx}
-                              className="bg-white border border-slate-200 rounded-xl p-2.5 flex items-center justify-between gap-2 shadow-2xs hover:border-teal-400 transition-colors"
+                              className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs hover:border-teal-400 transition-colors space-y-2.5"
                             >
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={`w-2 h-2 rounded-full shrink-0 ${isSecPublished ? "bg-emerald-500" : "bg-amber-500"}`}
-                                />
-                                <div>
+                              {/* Row 1: Section Name and Independent Status Badges */}
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <div className="flex items-center gap-2">
                                   <span className="font-black text-xs text-slate-900 block">
                                     {sec.name}
                                   </span>
-                                  <span
-                                    className={`text-[10px] font-bold ${
-                                      isSecPublished
-                                        ? "text-emerald-700"
-                                        : "text-amber-700"
-                                    }`}
-                                  >
-                                    {isSecPublished ? "منشور" : "مسودة"}
-                                  </span>
+                                  {sec.grade_level_display && (
+                                    <span className="text-[10px] text-slate-500 font-semibold">
+                                      ({sec.grade_level_display})
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {/* Schedule Status Badge */}
+                                  {isSchedulePublished ? (
+                                    <span
+                                      className="px-2 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 text-[10px] font-black rounded-md flex items-center gap-1"
+                                      title="موعد الامتحان منشور لأولياء الأمور في تطبيق الموبايل"
+                                    >
+                                      <CalendarCheck className="w-3 h-3 text-blue-600" />
+                                      الموعد: منشور
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className="px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-bold rounded-md flex items-center gap-1"
+                                      title="موعد الامتحان غير منشور في تطبيق الموبايل (مسودة)"
+                                    >
+                                      <Calendar className="w-3 h-3 text-slate-400" />
+                                      الموعد: مسودة
+                                    </span>
+                                  )}
+
+                                  {/* Result Status Badge */}
+                                  {isSecPublished ? (
+                                    <span
+                                      className="px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-black rounded-md flex items-center gap-1"
+                                      title="نتائج وعلامات الامتحان منشورة رسمياً"
+                                    >
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                      النتائج: منشورة
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold rounded-md flex items-center gap-1"
+                                      title="نتائج وعلامات الامتحان مسودة (لم تنشر بعد)"
+                                    >
+                                      <Clock className="w-3 h-3 text-amber-600" />
+                                      النتائج: مسودة
+                                    </span>
+                                  )}
                                 </div>
                               </div>
 
-                              {isSecPublished ? (
-                                canCorrectPublished ? (
-                                  <Button
-                                    size="sm"
-                                    onClick={() =>
-                                      handleOpenScoreSheet(assessment, sec)
-                                    }
-                                    className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-2xs"
-                                  >
-                                    <Edit3 className="w-3 h-3" />
-                                    <span>تصحيح الدرجات</span>
-                                  </Button>
+                              {/* Row 2: Independent Actions */}
+                              <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 flex-wrap">
+                                {/* Schedule Action */}
+                                {canPublishSchedule ? (
+                                  !isSchedulePublished ? (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handlePublishSchedule(assessment, sec)}
+                                      disabled={isScheduleLoading}
+                                      className="bg-blue-50/70 hover:bg-blue-100 text-blue-800 border-blue-200 text-[11px] font-black px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-2xs"
+                                      title="نشر موعد الامتحان للشعبة في تطبيق أولياء الأمور (لا يشترط وجود درجات)"
+                                    >
+                                      {isScheduleLoading ? (
+                                        <RefreshCw className="w-3 h-3 animate-spin text-blue-700" />
+                                      ) : (
+                                        <CalendarCheck className="w-3 h-3 text-blue-600" />
+                                      )}
+                                      <span>نشر الموعد</span>
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleRequestUnpublishSchedule(assessment, sec)}
+                                      disabled={isScheduleLoading || isSecPublished}
+                                      className={`text-[11px] font-black px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-2xs ${
+                                        isSecPublished
+                                          ? "bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed"
+                                          : "bg-rose-50/70 hover:bg-rose-100 text-rose-800 border-rose-200"
+                                      }`}
+                                      title={
+                                        isSecPublished
+                                          ? "لا يمكن إلغاء نشر الموعد لأن نتائج الامتحان منشورة بالفعل للأهالي"
+                                          : "إلغاء نشر موعد الامتحان للشعبة وإخفائه من تطبيق أولياء الأمور"
+                                      }
+                                    >
+                                      {isScheduleLoading ? (
+                                        <RefreshCw className="w-3 h-3 animate-spin text-rose-700" />
+                                      ) : (
+                                        <CalendarX className="w-3 h-3 text-rose-600" />
+                                      )}
+                                      <span>إلغاء نشر الموعد</span>
+                                    </Button>
+                                  )
                                 ) : (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() =>
-                                      handleOpenScoreSheet(assessment, sec)
-                                    }
-                                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300 text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-2xs"
-                                  >
-                                    <Eye className="w-3.5 h-3.5 text-slate-600" />
-                                    <span>عرض الدرجات</span>
-                                  </Button>
-                                )
-                              ) : canChangeScore ? (
-                                <Button
-                                  size="sm"
-                                  onClick={() =>
-                                    handleOpenScoreSheet(assessment, sec)
-                                  }
-                                  className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-2xs"
-                                >
-                                  <Edit3 className="w-3 h-3" />
-                                  <span>رصد الدرجات</span>
-                                </Button>
-                              ) : (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() =>
-                                    handleOpenScoreSheet(assessment, sec)
-                                  }
-                                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300 text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-2xs"
-                                >
-                                  <Eye className="w-3.5 h-3.5 text-slate-600" />
-                                  <span>عرض الدرجات</span>
-                                </Button>
-                              )}
+                                  <div />
+                                )}
+
+                                {/* Scores Action */}
+                                <div>
+                                  {isSecPublished ? (
+                                    canCorrectPublished ? (
+                                      <Button
+                                        size="sm"
+                                        onClick={() =>
+                                          handleOpenScoreSheet(assessment, sec)
+                                        }
+                                        className="bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-black px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-2xs"
+                                      >
+                                        <Edit3 className="w-3 h-3" />
+                                        <span>تصحيح الدرجات</span>
+                                      </Button>
+                                    ) : (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() =>
+                                          handleOpenScoreSheet(assessment, sec)
+                                        }
+                                        className="bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300 text-[11px] font-black px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-2xs"
+                                      >
+                                        <Eye className="w-3.5 h-3.5 text-slate-600" />
+                                        <span>عرض الدرجات</span>
+                                      </Button>
+                                    )
+                                  ) : canChangeScore ? (
+                                    <Button
+                                      size="sm"
+                                      onClick={() =>
+                                        handleOpenScoreSheet(assessment, sec)
+                                      }
+                                      className="bg-teal-700 hover:bg-teal-800 text-white text-[11px] font-black px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-2xs"
+                                    >
+                                      <Edit3 className="w-3 h-3" />
+                                      <span>رصد الدرجات</span>
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() =>
+                                        handleOpenScoreSheet(assessment, sec)
+                                      }
+                                      className="bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300 text-[11px] font-black px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-2xs"
+                                    >
+                                      <Eye className="w-3.5 h-3.5 text-slate-600" />
+                                      <span>عرض الدرجات</span>
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           );
                         })}
@@ -1457,6 +1804,69 @@ export function GradesManagement() {
             </select>
           </div>
 
+          {/* Section (Only for Single Section Mode) OR Grade-Wide Preview */}
+          {createMode === "single" ? (
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-700">
+                الشعبة الدراسية *
+              </label>
+              <select
+                value={formData.section}
+                onChange={(e) =>
+                  setFormData({ ...formData, section: e.target.value })
+                }
+                required
+                disabled={!formData.grade_level}
+                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-teal-500 disabled:bg-slate-100 disabled:text-slate-400"
+              >
+                <option value="">
+                  {formData.grade_level
+                    ? "-- اختر الشعبة --"
+                    : "-- يرجى اختيار الصف الدراسي أولاً --"}
+                </option>
+                {modalSections.map((sec) => (
+                  <option key={sec.id} value={sec.id}>
+                    {sec.name}
+                  </option>
+                ))}
+              </select>
+              {formData.grade_level && modalSections.length === 0 && (
+                <p className="text-[11px] text-amber-600 font-medium">
+                  لا توجد شعب مسجلة لهذا الصف.
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="bg-teal-50/70 border border-teal-200 rounded-xl p-3 space-y-1.5 text-xs text-teal-900">
+              <div className="font-bold flex items-center gap-1.5 text-teal-800">
+                <Layers className="w-3.5 h-3.5 text-teal-600" />
+                <span>الشعب المشمولة بالتقييم:</span>
+              </div>
+              {formData.grade_level ? (
+                modalSections.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {modalSections.map((sec) => (
+                      <span
+                        key={sec.id}
+                        className="inline-flex items-center px-2 py-0.5 rounded-lg bg-teal-100 text-teal-800 text-[11px] font-bold border border-teal-200"
+                      >
+                        {sec.name}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-amber-700 font-medium">
+                    لا توجد شعب مسجلة في هذا الصف حتى الآن.
+                  </p>
+                )
+              ) : (
+                <p className="text-[11px] text-slate-500 italic">
+                  يرجى اختيار الصف الدراسي أعلاه لعرض الشعب التي سيشملها التقييم.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Grade Subject */}
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-700">
@@ -1468,40 +1878,26 @@ export function GradesManagement() {
                 setFormData({ ...formData, grade_subject: e.target.value })
               }
               required
-              className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-teal-500"
+              disabled={!formData.grade_level}
+              className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-teal-500 disabled:bg-slate-100 disabled:text-slate-400"
             >
-              <option value="">-- اختر المادة --</option>
-              {availableGradeSubjects.map((gs) => (
+              <option value="">
+                {formData.grade_level
+                  ? "-- اختر المادة --"
+                  : "-- يرجى اختيار الصف الدراسي أولاً --"}
+              </option>
+              {modalGradeSubjects.map((gs) => (
                 <option key={gs.id} value={gs.id}>
-                  {gs.subject_display} ({gs.grade_level_display})
+                  {gs.subject_display}
                 </option>
               ))}
             </select>
+            {formData.grade_level && modalGradeSubjects.length === 0 && (
+              <p className="text-[11px] text-amber-600 font-medium">
+                لا توجد مواد مقررة مسجلة لهذا الصف.
+              </p>
+            )}
           </div>
-
-          {/* Section (Only for Single Section Mode) */}
-          {createMode === "single" && (
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-700">
-                الشعبة الدراسية *
-              </label>
-              <select
-                value={formData.section}
-                onChange={(e) =>
-                  setFormData({ ...formData, section: e.target.value })
-                }
-                required
-                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-teal-500"
-              >
-                <option value="">-- اختر الشعبة --</option>
-                {availableSections.map((sec) => (
-                  <option key={sec.id} value={sec.id}>
-                    {sec.name} ({sec.grade_level_display})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
 
           {/* Term */}
           <div className="space-y-1">
@@ -1776,7 +2172,7 @@ export function GradesManagement() {
         <div className="space-y-4 text-right">
           {/* Header Card */}
           <div className="bg-gradient-to-r from-slate-900 via-teal-950 to-slate-900 text-white rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-md">
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-base font-black text-white">
                   {scoreSheetAssessment?.title}
@@ -1784,18 +2180,37 @@ export function GradesManagement() {
                 <span className="px-2.5 py-0.5 bg-teal-500/20 text-teal-200 border border-teal-400/40 rounded-lg text-xs font-black">
                   {scoreSheetAssessment?.subject_display}
                 </span>
+              </div>
+
+              {/* Independent Status Badges */}
+              <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                {/* Schedule Status */}
+                {activeScoreSectionSchedulePublished ? (
+                  <span className="px-2.5 py-0.5 bg-blue-500/20 text-blue-300 border border-blue-400/40 rounded-lg text-xs font-black flex items-center gap-1">
+                    <CalendarCheck className="w-3.5 h-3.5 text-blue-400" />
+                    الموعد: منشور للأهالي
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-0.5 bg-slate-500/20 text-slate-300 border border-slate-400/40 rounded-lg text-xs font-bold flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                    الموعد: غير منشور (مسودة)
+                  </span>
+                )}
+
+                {/* Results Status */}
                 {activeScoreSectionPublished ? (
                   <span className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 rounded-lg text-xs font-black flex items-center gap-1">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                    منشور رسمياً
+                    النتائج: منشورة رسمياً
                   </span>
                 ) : (
-                  <span className="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-400/40 rounded-lg text-xs font-black flex items-center gap-1">
+                  <span className="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-400/40 rounded-lg text-xs font-bold flex items-center gap-1">
                     <Clock className="w-3.5 h-3.5 text-amber-400" />
-                    مسودة (غير منشور)
+                    النتائج: مسودة
                   </span>
                 )}
               </div>
+
               <p className="text-xs text-slate-300 font-medium">
                 الشعبة:{" "}
                 <span className="font-bold text-teal-300">
@@ -1805,13 +2220,80 @@ export function GradesManagement() {
               </p>
             </div>
 
-            <div className="px-4 py-2 bg-amber-400 text-amber-950 rounded-xl text-center font-black shadow-md">
-              <span className="block text-[10px] tracking-wider uppercase">
-                الدرجة القصوى
-              </span>
-              <span className="text-base font-black">
-                {scoreSheetAssessment?.max_score}
-              </span>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              {/* Quick schedule action from inside Score Sheet */}
+              {canPublishSchedule && scoreSheetAssessment && (
+                <div>
+                  {!activeScoreSectionSchedulePublished ? (
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          await api.grades.publishSchedule(
+                            scoreSheetAssessment.id,
+                            activeScoreSection.id
+                          );
+                          setActiveScoreSectionSchedulePublished(true);
+                          toast.success(
+                            `تم نشر موعد الامتحان لشعبة (${activeScoreSection.name}) وأصبح ظاهراً لأولياء الأمور.`
+                          );
+                          fetchAssessments();
+                        } catch (err) {
+                          toast.error(
+                            parseApiError(err, "فشل في نشر موعد الامتحان للشعبة.")
+                          );
+                        }
+                      }}
+                      className="bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-sm"
+                      title="نشر موعد الامتحان في تطبيق الأهالي مباشرة"
+                    >
+                      <CalendarCheck className="w-3.5 h-3.5" />
+                      <span>نشر الموعد</span>
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        if (activeScoreSectionPublished) {
+                          toast.error(
+                            "لا يمكن إلغاء نشر الموعد لأن نتائج الامتحان منشورة بالفعل للأهالي."
+                          );
+                          return;
+                        }
+                        handleRequestUnpublishSchedule(scoreSheetAssessment, {
+                          id: activeScoreSection.id,
+                          section: activeScoreSection.id,
+                          name: activeScoreSection.name,
+                          status: activeScoreSectionPublished ? "published" : "draft",
+                        });
+                      }}
+                      disabled={activeScoreSectionPublished}
+                      className={`text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-sm ${
+                        activeScoreSectionPublished
+                          ? "bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed"
+                          : "bg-rose-700 hover:bg-rose-600 text-white"
+                      }`}
+                      title={
+                        activeScoreSectionPublished
+                          ? "لا يمكن إلغاء نشر الموعد لأن النتائج منشورة بالفعل للأهالي"
+                          : "إلغاء نشر موعد الامتحان وإخفائه من تطبيق الأهالي"
+                      }
+                    >
+                      <CalendarX className="w-3.5 h-3.5" />
+                      <span>إلغاء نشر الموعد</span>
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              <div className="px-4 py-2 bg-amber-400 text-amber-950 rounded-xl text-center font-black shadow-md">
+                <span className="block text-[10px] tracking-wider uppercase">
+                  الدرجة القصوى
+                </span>
+                <span className="text-base font-black">
+                  {scoreSheetAssessment?.max_score}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -2139,6 +2621,30 @@ export function GradesManagement() {
             </p>
           </div>
 
+          {/* Grade Level */}
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-700">
+              الصف الدراسي *
+            </label>
+            <select
+              value={publishSectionGradeLevelId}
+              onChange={(e) => {
+                const newGrade = e.target.value;
+                setPublishSectionGradeLevelId(newGrade);
+                setPublishSectionId("");
+              }}
+              className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value="">-- اختر الصف الدراسي أولاً --</option>
+              {gradeLevels.map((gl) => (
+                <option key={gl.id} value={gl.id}>
+                  {gl.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Section */}
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-700">
               الشعبة الدراسية *
@@ -2146,15 +2652,25 @@ export function GradesManagement() {
             <select
               value={publishSectionId}
               onChange={(e) => setPublishSectionId(e.target.value)}
-              className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"
+              disabled={!publishSectionGradeLevelId}
+              className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
             >
-              <option value="">-- اختر الشعبة --</option>
-              {sections.map((sec) => (
+              <option value="">
+                {publishSectionGradeLevelId
+                  ? "-- اختر الشعبة --"
+                  : "-- يرجى اختيار الصف الدراسي أولاً --"}
+              </option>
+              {publishSectionsForModal.map((sec) => (
                 <option key={sec.id} value={sec.id}>
-                  {sec.name} ({sec.grade_level_display})
+                  {sec.name}
                 </option>
               ))}
             </select>
+            {publishSectionGradeLevelId && publishSectionsForModal.length === 0 && (
+              <p className="text-[11px] text-amber-600 font-medium">
+                لا توجد شعب مسجلة لهذا الصف.
+              </p>
+            )}
           </div>
 
           <div className="space-y-1">
@@ -2164,7 +2680,7 @@ export function GradesManagement() {
             <select
               value={publishSectionTermId}
               onChange={(e) => setPublishSectionTermId(e.target.value)}
-              className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"
+              className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500"
             >
               <option value="">-- اختر الفصل --</option>
               {terms.map((t) => (
@@ -2189,7 +2705,10 @@ export function GradesManagement() {
               type="button"
               onClick={handlePublishSection}
               disabled={
-                isPublishing || !publishSectionId || !publishSectionTermId
+                isPublishing ||
+                !publishSectionGradeLevelId ||
+                !publishSectionId ||
+                !publishSectionTermId
               }
               className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-sm"
             >
@@ -2229,7 +2748,7 @@ export function GradesManagement() {
             <select
               value={publishGradeLevelId}
               onChange={(e) => setPublishGradeLevelId(e.target.value)}
-              className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"
+              className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-amber-500"
             >
               <option value="">-- اختر الصف الدراسي --</option>
               {gradeLevels.map((gl) => (
@@ -2239,6 +2758,25 @@ export function GradesManagement() {
               ))}
             </select>
           </div>
+
+          {/* Grade Wide Sections Preview */}
+          {publishGradeLevelId && (
+            <div className="bg-amber-100/60 border border-amber-200/80 rounded-xl p-3 space-y-1 text-xs text-amber-900">
+              <span className="font-bold">الشعب التي ستشملها عملية النشر:</span>
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {sections
+                  .filter((s) => s.grade_level === publishGradeLevelId)
+                  .map((sec) => (
+                    <span
+                      key={sec.id}
+                      className="inline-flex items-center px-2 py-0.5 rounded-lg bg-white/80 text-amber-900 text-[11px] font-bold border border-amber-300"
+                    >
+                      {sec.name}
+                    </span>
+                  ))}
+              </div>
+            </div>
+          )}
 
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-700">
@@ -2280,6 +2818,68 @@ export function GradesManagement() {
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
               )}
               <span>تأكيد نشر الصف بالكامل</span>
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* MODAL 6.1: CONFIRM UNPUBLISH ASSESSMENT SCHEDULE */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={isUnpublishModalOpen}
+        onClose={() => !isUnpublishing && setIsUnpublishModalOpen(false)}
+        title="تأكيد إلغاء نشر موعد الامتحان"
+      >
+        <div className="space-y-4 text-right">
+          {unpublishError && (
+            <Alert variant="danger" title="تعذر إلغاء نشر موعد الامتحان">
+              {unpublishError}
+            </Alert>
+          )}
+
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-950 text-xs space-y-2.5">
+            <div className="flex items-center gap-2 font-black text-sm text-amber-900">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+              <span>
+                هل أنت متأكد من إلغاء نشر موعد الامتحان لشعبة ({unpublishTarget?.section?.name})؟
+              </span>
+            </div>
+            <p className="leading-relaxed">
+              التقييم: <strong className="text-slate-900 font-bold">{unpublishTarget?.assessment?.title}</strong>
+              <br />
+              عند إلغاء نشر الموعد، سيتم إخفاء موعد الامتحان من جدول الامتحانات في تطبيق أولياء الأمور (موبايل)، ويعود الموعد إلى حالة (مسودة).
+            </p>
+            <div className="p-3 bg-white/80 rounded-lg border border-amber-300 text-slate-700 space-y-1">
+              <p className="font-bold text-[11px] text-teal-800">
+                ✓ إلغاء نشر الموعد لا يلغي النتائج ولا يغيّر أو يحذف درجات الطلاب.
+              </p>
+              <p className="font-bold text-[11px] text-rose-800">
+                ⚠️ يمنع النظام إلغاء نشر موعد الامتحان إذا كانت نتائج الامتحان قد نُشرت بالفعل لهذه الشعبة.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsUnpublishModalOpen(false)}
+              disabled={isUnpublishing}
+              className="text-xs px-4 py-2 rounded-xl font-bold"
+            >
+              إلغاء
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConfirmUnpublishSchedule}
+              disabled={isUnpublishing}
+              className="bg-rose-600 hover:bg-rose-700 text-white font-black text-xs px-5 py-2 rounded-xl flex items-center gap-2 shadow-sm"
+            >
+              {isUnpublishing && (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              )}
+              <span>تأكيد إلغاء نشر الموعد</span>
             </Button>
           </div>
         </div>

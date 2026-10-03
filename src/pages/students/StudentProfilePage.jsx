@@ -1481,7 +1481,7 @@ export function StudentProfilePage() {
                                 className="hover:bg-slate-50/80 transition-colors"
                               >
                                 <td className="py-2.5 px-3 whitespace-nowrap font-mono font-bold text-slate-900">
-                                  {rec.attendance_date}
+                                  {rec.attendance_date || (rec.created_at ? rec.created_at.split('T')[0] : "-")}
                                 </td>
 
                                 <td className="py-2.5 px-3 whitespace-nowrap font-bold text-teal-800">
