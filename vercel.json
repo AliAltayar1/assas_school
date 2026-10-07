@@ -2,11 +2,19 @@
   "rewrites": [
     {
       "source": "/api",
-      "destination": "https://asas-school.onrender.com/api/"
+      "destination": "https://api.asasnationalschools.tech/api/"
     },
     {
       "source": "/api/(.*)",
-      "destination": "https://asas-school.onrender.com/api/$1"
+      "destination": "https://api.asasnationalschools.tech/api/$1"
+    },
+    {
+      "source": "/csrf/(.*)",
+      "destination": "https://api.asasnationalschools.tech/csrf/$1"
+    },
+    {
+      "source": "/media/(.*)",
+      "destination": "https://api.asasnationalschools.tech/media/$1"
     },
     {
       "source": "/(.*)",
