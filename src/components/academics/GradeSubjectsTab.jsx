@@ -6,6 +6,7 @@ import {
   parseApiError,
   getApiSuccessMessage,
   extractPaginatedList,
+  fetchAllPaginated,
 } from "../../utils/errorUtils";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
@@ -50,14 +51,17 @@ export function GradeSubjectsTab() {
 
   const fetchDropdownData = useCallback(async () => {
     try {
-      const [yearsRes, levelsRes, subjectsRes] = await Promise.all([
-        api.academics.getYears(),
-        api.academics.getGradeLevels(),
-        api.academics.getSubjects(),
+      const [yearsList, levelsList, subjectsList] = await Promise.all([
+        fetchAllPaginated(api.academics.getYears),
+        fetchAllPaginated(api.academics.getGradeLevels),
+        fetchAllPaginated(api.academics.getSubjects, { ordering: "name" }),
       ]);
-      setYears(extractPaginatedList(yearsRes).results);
-      setGradeLevels(extractPaginatedList(levelsRes).results);
-      setSubjects(extractPaginatedList(subjectsRes).results);
+      setYears(yearsList);
+      setGradeLevels(levelsList);
+      const sortedSubjects = [...subjectsList].sort((a, b) =>
+        (a.name || "").localeCompare(b.name || "", "ar")
+      );
+      setSubjects(sortedSubjects);
     } catch (_) {}
   }, []);
 
@@ -72,8 +76,7 @@ export function GradeSubjectsTab() {
       if (activeFilter) params.is_active = activeFilter;
       if (searchTerm.trim()) params.search = searchTerm.trim();
 
-      const res = await api.academics.getGradeSubjects(params);
-      const { results } = extractPaginatedList(res);
+      const results = await fetchAllPaginated(api.academics.getGradeSubjects, params);
       setGradeSubjects(results);
     } catch (err) {
       setError(parseApiError(err, "فشل تحميل مواد الصفوف الدراسية."));

@@ -72,6 +72,20 @@ axiosInstance.interceptors.request.use(
   }
 );
 
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error) => {
+  failedQueue.forEach((prom) => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve();
+    }
+  });
+  failedQueue = [];
+};
+
 // Response Interceptor: Handle 401 Unauthorized via HttpOnly cookie refresh token rotation & central error logging
 axiosInstance.interceptors.response.use(
   (response) => response,
@@ -89,12 +103,34 @@ axiosInstance.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // Determine if the client previously had an established session
+    const hasSession =
+      typeof window !== "undefined" &&
+      localStorage.getItem("has_session") === "true";
+
     if (
       error.response?.status === 401 &&
       originalRequest &&
       !originalRequest._retry
     ) {
+      // If there is no active session (e.g. initial visit, logged out), do NOT attempt refresh!
+      if (!hasSession) {
+        if (!requestUrl.includes("/auth/web/me")) {
+          logApiError(error);
+        }
+        return Promise.reject(error);
+      }
+
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then(() => axiosInstance(originalRequest))
+          .catch((err) => Promise.reject(err));
+      }
+
       originalRequest._retry = true;
+      isRefreshing = true;
 
       try {
         await refreshInstance.post(
@@ -105,11 +141,20 @@ axiosInstance.interceptors.response.use(
           }
         );
 
+        isRefreshing = false;
+        processQueue(null);
+
         // Retry original request after token refresh
         return axiosInstance(originalRequest);
       } catch (refreshError) {
+        isRefreshing = false;
+        processQueue(refreshError);
+
         console.warn("🔒 [Session Expired] Refresh token invalid or expired.");
-        window.dispatchEvent(new Event("auth-session-expired"));
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("has_session");
+          window.dispatchEvent(new Event("auth-session-expired"));
+        }
         logApiError(error);
         return Promise.reject(error);
       }
@@ -137,4 +182,5 @@ axiosInstance.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
 

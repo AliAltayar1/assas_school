@@ -72,6 +72,7 @@ export function LoginForm() {
         onChange={(e) => {
           setIdentifier(e.target.value);
           if (errors.identifier) setErrors((prev) => ({ ...prev, identifier: null }));
+          if (error) clearError();
         }}
         error={errors.identifier}
         disabled={isSubmitting}
@@ -88,6 +89,7 @@ export function LoginForm() {
         onChange={(e) => {
           setPassword(e.target.value);
           if (errors.password) setErrors((prev) => ({ ...prev, password: null }));
+          if (error) clearError();
         }}
         error={errors.password}
         disabled={isSubmitting}

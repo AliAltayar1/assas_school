@@ -474,3 +474,54 @@ export function extractPaginatedList(res) {
 
   return output;
 }
+
+/**
+ * Helper to fetch all records across pages from a DRF paginated endpoint.
+ * Loops with page_size=1000 while next is present, guaranteeing all
+ * records are loaded without being truncated by the default 20-item pagination.
+ *
+ * @param {Function} fetchFn - API call function, e.g. api.academics.getSubjects
+ * @param {Object} [baseParams={}] - Optional query params
+ * @param {number} [maxPages=50] - Maximum pages safety limit
+ * @returns {Promise<Array>} Array of all fetched records
+ */
+export async function fetchAllPaginated(fetchFn, baseParams = {}, maxPages = 50) {
+  if (!fetchFn || typeof fetchFn !== "function") return [];
+  let allResults = [];
+  let page = 1;
+  const pageSize = 1000;
+  let hasMore = true;
+
+  while (hasMore && page <= maxPages) {
+    try {
+      const res = await fetchFn({ ...baseParams, page, page_size: pageSize });
+      const { results, next, count } = extractPaginatedList(res);
+
+      if (Array.isArray(results) && results.length > 0) {
+        allResults = [...allResults, ...results];
+      }
+
+      if (!next || !results || results.length === 0 || (count && allResults.length >= count)) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+    } catch (err) {
+      console.error("Error in fetchAllPaginated:", err);
+      hasMore = false;
+    }
+  }
+
+  // Fallback: If page_size=1000 failed or returned empty, try standard fetch
+  if (allResults.length === 0) {
+    try {
+      const fallbackRes = await fetchFn(baseParams);
+      const { results } = extractPaginatedList(fallbackRes);
+      if (Array.isArray(results)) {
+        allResults = results;
+      }
+    } catch (_) {}
+  }
+
+  return allResults;
+}

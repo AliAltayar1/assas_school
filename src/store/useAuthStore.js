@@ -2,12 +2,16 @@ import { create } from "zustand";
 import { api } from "../api";
 import { parseApiError } from "../utils/errorUtils";
 
+const hasInitialSession =
+  typeof window !== "undefined" &&
+  localStorage.getItem("has_session") === "true";
+
 export const useAuthStore = create((set, get) => ({
   user: null,
   permissions: [],
   requesterRole: null,
   isAuthenticated: false,
-  isLoading: true,
+  isLoading: hasInitialSession,
   mustChangePassword: false,
   error: null,
 
@@ -64,17 +68,35 @@ export const useAuthStore = create((set, get) => ({
 
   // App Initialization: Verify current session via /auth/web/me/
   initialize: async () => {
+    // 1. Fetch CSRF token first so forms/requests have a valid token
+    try {
+      await api.auth.getCsrf();
+    } catch (_) {
+      // Continue if CSRF fails on initial load
+    }
+
+    const hasSession =
+      typeof window !== "undefined" &&
+      localStorage.getItem("has_session") === "true";
+
+    // If there is no previous session, do NOT probe /me or trigger refresh!
+    if (!hasSession) {
+      set({
+        user: null,
+        permissions: [],
+        requesterRole: null,
+        isAuthenticated: false,
+        mustChangePassword: false,
+        isLoading: false,
+        error: null,
+      });
+      return;
+    }
+
     set({ isLoading: true, error: null });
 
     try {
-      // 1. Fetch CSRF token first
-      try {
-        await api.auth.getCsrf();
-      } catch (_) {
-        // Continue if CSRF fails on initial load
-      }
-
-      // 2. Fetch authenticated user data
+      // 2. Fetch authenticated user data only if a session was previously active
       const userData = await api.auth.getMe();
 
       if (userData && (userData.id || userData.username)) {
@@ -95,8 +117,12 @@ export const useAuthStore = create((set, get) => ({
           isAuthenticated: true,
           mustChangePassword: !!userData.must_change_password,
           isLoading: false,
+          error: null,
         });
       } else {
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("has_session");
+        }
         set({
           user: null,
           permissions: [],
@@ -104,9 +130,13 @@ export const useAuthStore = create((set, get) => ({
           isAuthenticated: false,
           mustChangePassword: false,
           isLoading: false,
+          error: null,
         });
       }
     } catch (err) {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("has_session");
+      }
       set({
         user: null,
         permissions: [],
@@ -124,6 +154,10 @@ export const useAuthStore = create((set, get) => ({
     try {
       // Perform backend web login
       await api.auth.login(identifier, password);
+
+      if (typeof window !== "undefined") {
+        localStorage.setItem("has_session", "true");
+      }
 
       // Fetch user profile after successful login
       const userData = await api.auth.getMe();
@@ -149,6 +183,9 @@ export const useAuthStore = create((set, get) => ({
 
       return userData;
     } catch (err) {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("has_session");
+      }
       const status = err.response?.status;
       let errorMessage = "حدث خطأ أثناء تسجيل الدخول. يرجى التحقق من البيانات والمحاولة مجدداً.";
 
@@ -216,6 +253,10 @@ export const useAuthStore = create((set, get) => ({
       // Ignore session expiration errors on logout
     }
 
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("has_session");
+    }
+
     set({
       user: null,
       permissions: [],
@@ -256,13 +297,17 @@ export const useAuthStore = create((set, get) => ({
 // Listen for global session expiry events from Axios interceptor
 if (typeof window !== "undefined") {
   window.addEventListener("auth-session-expired", () => {
+    const wasAuthenticated = useAuthStore.getState().isAuthenticated;
+    localStorage.removeItem("has_session");
     useAuthStore.setState({
       user: null,
       permissions: [],
       requesterRole: null,
       isAuthenticated: false,
       mustChangePassword: false,
-      error: "انتهت مدة الجلسة الحالية. يرجى تسجيل الدخول مجدداً.",
+      error: wasAuthenticated
+        ? "انتهت مدة الجلسة الحالية. يرجى تسجيل الدخول مجدداً."
+        : null,
     });
   });
 
